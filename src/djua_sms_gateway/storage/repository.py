@@ -57,30 +57,48 @@ def compute_raw_dedupe_key(raw: RawSmsInput) -> str:
 
 
 def canonical_logical_message(telemetry: SmsTelemetry) -> str:
-    """Return a stable semantic D1 representation excluding transport auth text."""
+    """Return a stable semantic D1 representation excluding transport auth text.
+
+    Values belonging to a group whose validity flag is false are canonicalized
+    to null because the normalizer deliberately ignores those raw values.
+    """
 
     value = {
         "protocol_version": telemetry.protocol_version,
         "device_id": telemetry.device_id,
         "sequence": telemetry.sequence,
-        "rtc": telemetry.rtc,
-        "timezone_minutes": telemetry.timezone_minutes,
+        "rtc": telemetry.rtc if telemetry.rtc_valid else None,
+        "timezone_minutes": (
+            telemetry.timezone_minutes if telemetry.rtc_valid else None
+        ),
         "uptime_ms": telemetry.uptime_ms,
         "interval_seconds": telemetry.interval_seconds,
-        "latitude": telemetry.latitude,
-        "longitude": telemetry.longitude,
-        "battery_voltage": telemetry.battery_voltage,
-        "battery_current": telemetry.battery_current,
-        "battery_power": telemetry.battery_power,
-        "solar_voltage": telemetry.solar_voltage,
-        "solar_current": telemetry.solar_current,
-        "solar_power": telemetry.solar_power,
-        "solar_energy_interval_wh": telemetry.solar_energy_interval_wh,
-        "ac_voltage": telemetry.ac_voltage,
-        "ac_current": telemetry.ac_current,
-        "ac_active_power": telemetry.ac_active_power,
-        "ac_apparent_power": telemetry.ac_apparent_power,
-        "ac_energy_interval_wh": telemetry.ac_energy_interval_wh,
+        "latitude": telemetry.latitude if telemetry.gps_valid else None,
+        "longitude": telemetry.longitude if telemetry.gps_valid else None,
+        "battery_voltage": (
+            telemetry.battery_voltage if telemetry.battery_valid else None
+        ),
+        "battery_current": (
+            telemetry.battery_current if telemetry.battery_valid else None
+        ),
+        "battery_power": telemetry.battery_power if telemetry.battery_valid else None,
+        "solar_voltage": telemetry.solar_voltage if telemetry.solar_valid else None,
+        "solar_current": telemetry.solar_current if telemetry.solar_valid else None,
+        "solar_power": telemetry.solar_power if telemetry.solar_valid else None,
+        "solar_energy_interval_wh": (
+            telemetry.solar_energy_interval_wh if telemetry.solar_valid else None
+        ),
+        "ac_voltage": telemetry.ac_voltage if telemetry.ac_valid else None,
+        "ac_current": telemetry.ac_current if telemetry.ac_valid else None,
+        "ac_active_power": (
+            telemetry.ac_active_power if telemetry.ac_valid else None
+        ),
+        "ac_apparent_power": (
+            telemetry.ac_apparent_power if telemetry.ac_valid else None
+        ),
+        "ac_energy_interval_wh": (
+            telemetry.ac_energy_interval_wh if telemetry.ac_valid else None
+        ),
         "flags": telemetry.flags,
     }
     return json.dumps(
