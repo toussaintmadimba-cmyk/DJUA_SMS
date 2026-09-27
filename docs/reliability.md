@@ -1,542 +1,288 @@
 # Fiabilité, non-perte et reprise
 
-> Règle de projet : `toussaintmadimba-cmyk/DJUA` est **READ ONLY**. Toutes les stratégies décrites ici concernent exclusivement `DJUA_SMS`.
+> `toussaintmadimba-cmyk/DJUA` est **READ ONLY**. Cette documentation décrit uniquement DJUA_SMS.
 
-## 1. Objectif
-
-DJUA_SMS doit privilégier la conservation des données avant la rapidité de publication.
+## 1. Garantie locale visée
 
 Principe :
 
 ```text
-un SMS reçu et persisté localement
-ne doit pas être perdu
-par une panne Internet, MQTT ou un redémarrage du PC
+un SMS déjà commit dans SQLite
+ne dépend plus de la disponibilité d'Internet ou MQTT
+pour être conservé
 ```
 
-Cette phase décrit la stratégie. Elle n'implémente pas encore SQLite ni le driver SIM800L.
+La persistance et la reprise sont maintenant **TESTÉES AUTOMATIQUEMENT** sans SIM800L et sans broker.
 
 ## 2. Ordre de non-perte
 
-**CHOIX D'ARCHITECTURE DJUA_SMS**
-
-Ordre obligatoire :
+L'ordre obligatoire reste :
 
 ```text
-SMS présent dans le modem
-        |
-        v
-lecture SMS
-        |
-        v
-INSERT du message brut
-        |
-        v
-COMMIT SQLite réussi
-        |
-        v
-suppression du SMS autorisée dans le modem
-        |
-        v
-parsing
-        |
-        v
-validation
-        |
-        v
-déduplication logique
-        |
-        v
-normalisation
-        |
-        v
-INSERT outbox MQTT
-        |
-        v
-COMMIT outbox
-        |
-        v
-publication MQTT
-        |
-        v
-confirmation broker
-        |
-        v
-PUBLISHED
-```
-
-Règle fondamentale :
-
-```text
-lecture SMS
--> SQLite COMMIT
--> suppression modem
-```
-
-Jamais l'inverse.
-
-## 3. Pourquoi supprimer après COMMIT
-
-Cas dangereux :
-
-```text
-lecture
--> suppression modem
--> crash avant stockage
-= perte définitive
-```
-
-Cas retenu :
-
-```text
-lecture
--> stockage durable
--> COMMIT
--> suppression modem
--> crash éventuel
-= reprise possible depuis SQLite
-```
-
-Une panne Internet n'intervient donc pas dans la décision initiale de conserver le SMS.
-
-## 4. Réception SIM800L
-
-**À VALIDER AVEC SIM800L RÉEL**
-
-L'architecture privilégie un fonctionnement où le SMS reste stocké dans le modem/SIM jusqu'à ce que DJUA_SMS confirme sa persistance locale.
-
-Une séquence de type :
-
-```text
-+CMTI
--> AT+CMGR=<index>
+lecture future depuis modem
+-> store_raw_sms()
 -> COMMIT SQLite
--> AT+CMGD=<index>
+-> seulement ensuite suppression modem autorisable
 ```
 
-est conceptuellement adaptée.
+La partie `store_raw_sms() -> COMMIT` est implémentée.
 
-Le choix exact de `AT+CNMI`, de la mémoire SMS et des commandes supportées ne doit pas être considéré comme validé avant essais avec le modem réel.
+La suppression SIM800L reste **À VALIDER AVEC SIM800L RÉEL**.
 
-## 5. Modèle conceptuel de stockage
+## 3. Déduplication brute
 
-**CHOIX D'ARCHITECTURE DJUA_SMS**
+**TESTÉ AUTOMATIQUEMENT**
 
-Deux ensembles persistants sont nécessaires.
-
-### inbound_sms
-
-Conserve la preuve brute de réception.
-
-Champs conceptuels :
+`raw_dedupe_key` est un SHA-256 déterministe d'une sérialisation JSON canonique contenant :
 
 ```text
-id
-sender_number
-modem_message_index
-modem_timestamp
-gateway_received_at
-raw_body
-raw_hash
-protocol_version
+version = raw-v1
+sender
+modem_timestamp ou chaîne vide
+raw_body exact
+```
+
+La clé ne dépend pas d'un index mémoire SIM.
+
+Si `modem_timestamp` est absent, un replay exact `sender + raw_body` reste dédupliqué.
+
+La contrainte SQLite :
+
+```text
+UNIQUE(raw_dedupe_key)
+```
+
+est la garde finale contre les courses.
+
+Un doublon brut retourne le SMS déjà existant et ne crée ni seconde ligne `inbound_sms`, ni seconde outbox.
+
+## 4. Déduplication logique
+
+**TESTÉ AUTOMATIQUEMENT**
+
+Après parsing/validation, la clé logique est un SHA-256 portant notamment sur :
+
+```text
 device_id
-logical_message_key
-state
-validation_error
-created_at
-updated_at
+sequence
+rtc
+uptime_ms
+représentation sémantique D1 canonique
 ```
 
-`modem_message_index` est une information de diagnostic, pas une identité durable.
+La représentation canonique utilise les valeurs déjà parsées et exclut le texte `auth`.
 
-### mqtt_outbox
+Conséquences testées :
 
-Conserve ce qui doit être publié.
+- `12.40` et `12.400` donnent la même identité sémantique ;
+- le même message avec `auth=-` ou un tag de forme correcte ne crée pas deux publications ;
+- la même séquence sur deux `device_id` reste distincte ;
+- une séquence réutilisée après reboot/wrap reste distincte si RTC/uptime/contenu changent.
 
-Champs conceptuels :
+La contrainte SQLite :
 
 ```text
-id
-inbound_sms_id
+UNIQUE(logical_dedupe_key)
+```
+
+empêche une seconde télémétrie logique d'obtenir une seconde outbox.
+
+Le deuxième SMS brut reste conservé pour audit, marqué `VALIDATED` avec un avertissement `DUPLICATE_LOGICAL:<id>`.
+
+## 5. Transactions
+
+Deux frontières existent volontairement.
+
+### Transaction A — conservation brute
+
+```text
+INSERT inbound_sms(RECEIVED)
+COMMIT
+```
+
+Elle a lieu avant parsing.
+
+Un SMS invalide reste donc conservé.
+
+### Transaction B — mise en file atomique
+
+Pour un SMS valide :
+
+```text
+UPDATE inbound_sms -> QUEUED
++
+INSERT mqtt_outbox -> PENDING
+COMMIT
+```
+
+Les deux opérations sont atomiques.
+
+Un test force une violation de contrainte outbox : l'état `QUEUED` est alors rollbacké et aucune outbox partielle n'existe.
+
+## 6. SMS invalides
+
+**TESTÉ AUTOMATIQUEMENT**
+
+Une erreur de parsing ou un `INVALID_FORMAT` produit :
+
+```text
+inbound_sms.status = INVALID
+raw_body conservé
+validation_error conservée
+aucune mqtt_outbox
+```
+
+L'invalidité ne supprime pas la preuve brute.
+
+## 7. MQTT outbox
+
+**TESTÉ AUTOMATIQUEMENT sans réseau**
+
+Chaque publication future contient :
+
+```text
+sms_id
 topic
-payload
+payload_json
 qos
 retain
-state
+status
 attempt_count
+next_attempt_at
 last_error
-next_attempt
 created_at
+updated_at
 published_at
 ```
 
-Le schéma final sera défini pendant l'implémentation.
-
-## 6. États de traitement
-
-**CHOIX D'ARCHITECTURE DJUA_SMS**
-
-États conceptuels :
+Valeurs par défaut actuelles du pipeline :
 
 ```text
-RECEIVED
-INVALID
-VALIDATED
-PENDING_MQTT
-PUBLISHED
-FAILED
+qos = 1
+retain = false
+status = PENDING
 ```
 
-Transitions normales :
+`payload_json` est sérialisé de manière déterministe avec `sort_keys=True`, sans ajout de `protocol`, `sequence`, `flags` ou `auth`.
+
+## 8. Reprise
+
+**TESTÉ AUTOMATIQUEMENT**
+
+Après fermeture/réouverture de la base :
 
 ```text
-RECEIVED
-   |
-   +--> INVALID
-   |
-   +--> VALIDATED
-            |
-            v
-       PENDING_MQTT
-            |
-            +--> PENDING_MQTT  (retry)
-            |
-            +--> PUBLISHED
-            |
-            +--> FAILED        (erreur non récupérable / intervention)
+list_pending_outbox()
 ```
 
-Signification :
+retrouve les publications `PENDING` et leur `payload_json` identique.
 
-- `RECEIVED` : SMS brut durablement stocké ;
-- `INVALID` : message archivé mais non publiable ;
-- `VALIDATED` : protocole et identité acceptés ;
-- `PENDING_MQTT` : publication persistée dans l'outbox ;
-- `PUBLISHED` : broker a confirmé la publication selon le QoS choisi ;
-- `FAILED` : traitement impossible sans correction/intervention.
-
-Une indisponibilité temporaire d'Internet ou MQTT ne doit pas faire passer immédiatement le message en `FAILED`.
-
-## 7. Déduplication
-
-### Règle
-
-Ne jamais utiliser uniquement :
+Le test end-to-end simulé couvre :
 
 ```text
-index mémoire SIM
+raw D1
+-> SQLite
+-> parse
+-> validate
+-> normalize
+-> outbox
+-> nouvelle instance repository
+-> reload pending
 ```
 
-comme identifiant de message.
+sans réseau.
 
-Cet index appartient au stockage du modem et peut être réutilisé ou changer après suppression/redémarrage.
+## 9. Crash avant suppression modem
 
-### Clé logique
+**TESTÉ AUTOMATIQUEMENT côté logiciel**
 
-**CHOIX D'ARCHITECTURE DJUA_SMS**
-
-La clé logique doit utiliser plusieurs éléments :
+Simulation :
 
 ```text
-device_id
-+
-sequence
-+
-timestamp RTC si disponible
-+
-uptime
-+
-empreinte canonique du message
+SMS stocké
+-> processus supposé mort avant suppression modem
+-> même SMS réinjecté
 ```
 
-Proposition :
+Résultat :
 
 ```text
-message_fingerprint =
-SHA-256(
-  device_id |
-  sequence |
-  rtc |
-  uptime_ms |
-  canonical_D1
-)
+1 inbound_sms
+1 mqtt_outbox
+DUPLICATE_RAW au second passage
 ```
 
-Une contrainte d'unicité persistante sur cette empreinte empêche qu'un même message logique crée plusieurs entrées de télémétrie dans l'outbox.
+La suppression réelle du modem n'est pas encore testée.
 
-### Déduplication du brut avant parsing
+## 10. Crash après création outbox
 
-Un message peut être relu après un crash survenu entre :
+**TESTÉ AUTOMATIQUEMENT**
+
+Une outbox `PENDING` reste présente après réouverture du fichier SQLite.
+
+Aucune purge automatique n'est effectuée.
+
+## 11. Publication future
+
+L'API `mark_outbox_published()` effectue dans une transaction :
 
 ```text
-COMMIT SQLite
-et
-suppression modem
+mqtt_outbox.status = PUBLISHED
+published_at = ...
+inbound_sms.status = PUBLISHED
 ```
 
-La gateway doit donc aussi pouvoir reconnaître une relecture brute, par exemple à partir de :
+L'API `record_publish_failure()` :
 
 ```text
-sender_number
-+
-raw_body
-+
-métadonnées de réception disponibles
-+
-raw_hash
+attempt_count += 1
+last_error = ...
+next_attempt_at = ...
 ```
 
-Le mécanisme exact sera testé lors de l'implémentation.
+et conserve toujours `payload_json`.
 
-### Séquence seule insuffisante
+Un échec temporaire laisse l'outbox `PENDING`.
 
-La séquence D1 ne doit pas être considérée comme globalement unique tant que sa persistance et son comportement après reboot du futur émetteur n'ont pas été validés.
+Un échec explicitement terminal peut passer à `FAILED`, sans suppression de la ligne.
 
-## 8. Messages hors ordre
+Aucune stratégie de backoff numérique n'est encore imposée.
 
-Le réseau GSM peut retarder des SMS.
+## 12. Horodatage
 
-DJUA_SMS ne doit pas supposer :
+Les temps gateway :
 
-```text
-ordre d'arrivée = ordre de mesure
-```
+- `gateway_received_at`
+- `created_at`
+- `updated_at`
+- `published_at`
 
-La séquence, le RTC et l'uptime servent au diagnostic et à la déduplication.
+sont séparés des temps boîtier :
 
-La gateway ne doit pas réécrire arbitrairement les timestamps pour forcer un ordre.
+- `timestamp`
+- `timestamp_ms`.
 
-## 9. MQTT outbox
+La gateway ne remplace jamais l'horodatage DJUA avec son heure locale de traitement.
 
-**CHOIX D'ARCHITECTURE DJUA_SMS**
+## 13. Cas contractuels protégés
 
-La publication ne part jamais directement d'un objet transitoire uniquement en mémoire.
+**TESTÉ AUTOMATIQUEMENT**
 
-Ordre :
+- solaire invalide -> JSON `null` ;
+- solaire valide à zéro -> JSON `0.0` ;
+- trois devices -> trois topics et identités distinctes ;
+- même séquence sur devices différents -> aucune collision ;
+- `timestamp_ms = 4294967295` -> stocké sans correction du wrap.
 
-```text
-message validé
--> payload MQTT construit
--> INSERT outbox
--> COMMIT
--> tentative publication
-```
+## 14. Limites
 
-Si le broker est indisponible, l'entrée reste persistée.
+Non validé dans cette phase :
 
-Au redémarrage :
+- mémoire réelle du SIM800L ;
+- `AT+CNMI`, `+CMTI`, `AT+CMGR`, `AT+CMGD` ;
+- disparition/reconnexion du port série ;
+- broker réel ;
+- PUBACK réel ;
+- exactly-once end-to-end.
 
-```text
-SELECT publications non PUBLISHED
--> reprise des tentatives
-```
-
-## 10. QoS et garantie réelle
-
-**CHOIX D'ARCHITECTURE DJUA_SMS**
-
-QoS 1 est proposé pour la liaison gateway -> broker.
-
-Il apporte une sémantique de livraison au moins une fois vers le broker.
-
-Important :
-
-```text
-PUBACK
-= broker a accepté la publication
-```
-
-Ce n'est pas :
-
-```text
-backend a persisté la télémétrie
-```
-
-### Fenêtre de duplication inévitable
-
-Exemple :
-
-```text
-gateway publie
--> broker accepte
--> PC plante avant COMMIT PUBLISHED
--> gateway redémarre
--> message republié
-```
-
-Le broker/backend peut alors voir un doublon malgré la déduplication interne précédente.
-
-Donc, sans identifiant idempotent reconnu par le backend ou protocole end-to-end supplémentaire :
-
-```text
-exactly-once end-to-end
-n'est pas garanti
-```
-
-DJUA_SMS vise :
-
-- non-perte locale ;
-- déduplication interne ;
-- livraison au moins une fois au broker.
-
-Ne pas prétendre davantage avant validation end-to-end.
-
-## 11. Retry MQTT
-
-**CHOIX D'ARCHITECTURE DJUA_SMS**
-
-Chaque entrée en attente doit conserver :
-
-```text
-attempt_count
-last_error
-next_attempt
-```
-
-Le retry utilise un backoff progressif.
-
-Cette phase ne fixe pas arbitrairement :
-
-- délai initial ;
-- délai maximum ;
-- nombre maximum d'essais.
-
-Ces valeurs seront choisies pendant l'implémentation en fonction du contexte réel du poste récepteur.
-
-Une coupure Internet prolongée ne doit pas faire supprimer l'entrée.
-
-## 12. Reprise après panne
-
-### PC redémarre
-
-Les SMS déjà en SQLite sont relus selon leur état.
-
-Les entrées `PENDING_MQTT` sont reprises.
-
-### Application plante après COMMIT brut mais avant suppression modem
-
-Le SMS peut encore être présent dans le modem.
-
-À la relance, sa relecture est détectée comme doublon brut/logique.
-
-### Application plante après suppression modem mais avant parsing
-
-Le SMS brut est déjà dans SQLite : le traitement reprend depuis la copie locale.
-
-### MQTT indisponible
-
-Les messages restent en `PENDING_MQTT`.
-
-### Internet disparaît
-
-Même comportement que MQTT indisponible : aucune suppression de l'outbox.
-
-### SIM800L redémarre
-
-Les messages déjà commités localement restent disponibles.
-
-Les messages uniquement présents dans le modem dépendent du comportement de sa mémoire SMS et doivent être validés matériellement.
-
-### Port série disparaît
-
-Le service MQTT/outbox peut continuer à vider les données déjà locales.
-
-La partie modem passe en état de reconnexion sans faire tomber tout le service.
-
-## 13. Messages invalides
-
-Un SMS invalide doit être :
-
-```text
-archivé
-marqué INVALID
-journalisé
-non publié MQTT
-```
-
-Une erreur sur un SMS ne doit pas arrêter le processus global.
-
-Exemples :
-
-- version inconnue ;
-- nombre de champs incorrect ;
-- device_id invalide ;
-- numérique non parsable ;
-- coordonnées hors plage structurelle ;
-- incohérence entre flags et champs ;
-- authentification incorrecte si activée.
-
-Les valeurs métier inhabituelles mais syntaxiquement valides ne doivent pas être supprimées automatiquement. Une panne réelle pourrait produire une valeur anormale.
-
-## 14. Sécurité
-
-**CHOIX D'ARCHITECTURE DJUA_SMS**
-
-Niveaux envisagés :
-
-1. filtrage du numéro expéditeur ;
-2. association numéro <-> `device_id` ;
-3. validation de version/structure ;
-4. HMAC-SHA-256 standard si une gestion sûre des clés est mise en place.
-
-Ne pas inventer de cryptographie propriétaire.
-
-Les secrets :
-
-- ne sont jamais stockés dans Git ;
-- ne sont jamais affichés dans les logs ;
-- doivent être injectés par configuration locale sécurisée.
-
-Le numéro expéditeur seul ne constitue pas une authentification cryptographique forte.
-
-## 15. Journalisation
-
-Les logs doivent pouvoir indiquer sans secret :
-
-- modem disponible/indisponible ;
-- SMS reçu ;
-- identifiant local ;
-- expéditeur éventuellement masqué ;
-- device_id après parsing ;
-- validation acceptée/refusée ;
-- doublon détecté ;
-- COMMIT effectué ;
-- suppression modem réussie/échouée ;
-- MQTT connecté/déconnecté ;
-- tentative de publication ;
-- PUBACK ;
-- retry ;
-- erreur série.
-
-Le corps SMS brut peut contenir des informations opérationnelles. Sa présence dans les logs doit être contrôlée ; la copie diagnostique de référence reste SQLite.
-
-## 16. Points à valider matériellement
-
-**À VALIDER AVEC SIM800L RÉEL**
-
-- mode de stockage SMS utilisé ;
-- commandes `AT+CPMS` réellement supportées/configurées ;
-- comportement `AT+CNMI` ;
-- notification `+CMTI` ;
-- lecture `AT+CMGR` ;
-- suppression `AT+CMGD` ;
-- persistence des SMS après redémarrage modem ;
-- encodage réel reçu ;
-- numéro expéditeur retourné ;
-- timestamp fourni par le modem ;
-- comportement lorsque plusieurs SMS arrivent rapidement ;
-- comportement mémoire pleine ;
-- reconnexion après disparition du port série.
-
-## 17. Points à valider end-to-end
-
-**À VALIDER END-TO-END**
-
-- D1 réel -> parser ;
-- flags -> normalisation exacte ;
-- SQLite -> outbox ;
-- QoS/PUBACK ;
-- payload reçu par le broker ;
-- acceptation par l'API DJUA ;
-- absence de régression du contrat MQTT ;
-- comportement des doublons après crash au moment critique publication/PUBACK.
+La garantie actuelle est une garantie de **persistance locale et d'idempotence de la gateway simulée**, pas une validation matérielle ou réseau.

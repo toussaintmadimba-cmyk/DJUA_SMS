@@ -8,14 +8,7 @@ DJUA_SMS est une passerelle légère :
 SMS -> validation -> stockage -> MQTT
 ```
 
-Elle n'est pas :
-
-- un backend ;
-- une IA ;
-- un moteur de maintenance prédictive ;
-- un remplacement de l'API DJUA.
-
-Le transport cible du boîtier terrain est le SMS. DJUA_SMS reçoit ces SMS, les persiste, les valide, les déduplique, reconstruit le contrat MQTT DJUA existant et les publie vers le broker.
+Elle n'est pas un backend, une IA, un moteur de maintenance prédictive ni un remplacement de l'API DJUA.
 
 ## Protection absolue de DJUA
 
@@ -24,48 +17,37 @@ toussaintmadimba-cmyk/DJUA
 = READ ONLY
 ```
 
-Interdiction absolue de :
+Interdiction absolue de modifier, créer, supprimer, renommer ou déplacer un fichier dans DJUA, de créer une branche/commit/push/PR dans DJUA, de corriger le firmware, le backend, `TelemetryData`, `config.h` ou les topics.
 
-- modifier un fichier dans DJUA ;
-- créer, supprimer, renommer ou déplacer un fichier dans DJUA ;
-- créer une branche dans DJUA ;
-- créer un commit ou pousser dans DJUA ;
-- ouvrir une pull request contenant des modifications de DJUA ;
-- corriger ou refactorer le firmware DJUA ;
-- modifier le backend contenu dans DJUA ;
-- modifier TelemetryData, config.h, les topics ou les transports du firmware.
+DJUA peut uniquement être lu comme source de référence.
 
-DJUA peut uniquement être lu afin de comprendre le contrat actuel.
-
-Si une évolution de DJUA paraît nécessaire :
+Si une évolution paraît nécessaire :
 
 ```text
 la documenter
 mais ne pas l'implémenter
 ```
 
-Toute implémentation du présent projet doit viser exclusivement :
+Toute écriture du présent projet doit viser exclusivement :
 
 ```text
 toussaintmadimba-cmyk/DJUA_SMS
 ```
 
-Avant toute écriture GitHub, vérifier explicitement le dépôt cible. Si la cible est DJUA, arrêter l'opération.
-
 ## Règle de preuve
 
-Toujours distinguer clairement :
+Toujours distinguer :
 
-- **CONFIRMÉ PAR DJUA** : observé dans le code de la branche main de DJUA ;
-- **CHOIX D'ARCHITECTURE DJUA_SMS** : décision prise dans ce dépôt ;
-- **HYPOTHÈSE** : choix ou comportement non encore vérifié ;
-- **TESTÉ AUTOMATIQUEMENT** : couvert par un test logiciel exécuté ;
-- **À VALIDER AVEC SIM800L RÉEL** : dépend du modem, de la SIM, du réseau ou du port série ;
-- **À VALIDER END-TO-END** : nécessite toute la chaîne SMS -> gateway -> MQTT -> backend.
+- **CONFIRMÉ PAR DJUA**
+- **CHOIX D'ARCHITECTURE DJUA_SMS**
+- **HYPOTHÈSE**
+- **TESTÉ AUTOMATIQUEMENT**
+- **À VALIDER AVEC SIM800L RÉEL**
+- **À VALIDER END-TO-END**
 
 Ne jamais présenter un test simulé comme une validation matérielle.
 
-## Discipline de modification
+## Discipline
 
 Avant une modification locale :
 
@@ -82,44 +64,52 @@ git diff --check
 git diff
 ```
 
-Règles supplémentaires :
+Si l'intégration GitHub ne permet pas ces commandes littéralement, utiliser l'équivalent disponible et le signaler.
 
-- préférer les modifications petites et vérifiables ;
-- ne pas effectuer de refactor global hors périmètre ;
-- ne pas ajouter de dépendance sans justification ;
-- ne pas mélanger commandes AT, parsing SMS, SQLite, normalisation MQTT et publication MQTT dans un même module ;
-- ne jamais versionner de secret réel ;
-- ne jamais inventer un comportement du SIM800L ;
-- documenter les écarts entre code DJUA, documentation et hypothèses sans corriger DJUA.
+Règles :
 
-## Phase actuelle
+- modifications petites et vérifiables ;
+- pas de refactor global hors périmètre ;
+- pas de dépendance sans justification ;
+- pas de secret réel dans Git ;
+- ne pas mélanger commandes AT, protocole, SQLite, normalisation et publication MQTT ;
+- ne pas inventer le comportement du SIM800L.
 
-La phase documentaire est terminée. La phase autorisée actuelle est limitée au **noyau logiciel du protocole D1**, testable sans matériel et sans réseau :
+## État stable actuel
 
-- modèles D1 ;
-- parser CSV positionnel ;
-- décodage base36 et flags ;
-- validation structurelle ;
-- normalisation vers le payload MQTT DJUA ;
-- fixtures et tests unitaires du protocole.
+**TESTÉ AUTOMATIQUEMENT**
 
-Ne pas créer pendant cette phase :
+Sont maintenant implémentés dans DJUA_SMS :
 
-- driver SIM800L ;
-- port série ou commandes AT ;
-- base SQLite fonctionnelle ;
-- publisher MQTT réel ou dépendance paho-mqtt ;
-- service principal/daemon ;
-- service Windows ;
-- interface graphique ;
-- Docker ;
-- API web.
+- noyau protocolaire D1 ;
+- SQLite `sqlite3` ;
+- `inbound_sms` ;
+- `mqtt_outbox` ;
+- déduplication brute et logique SHA-256 ;
+- `SmsIngestionService` synchrone ;
+- reprise des outbox `PENDING` après redémarrage ;
+- API de marquage `PUBLISHED` ;
+- API d'enregistrement des échecs futurs de publication.
 
-Les documents de référence restent :
+La suite complète compte actuellement :
 
-- `docs/architecture.md`
-- `docs/sms_protocol.md`
-- `docs/mqtt_contract.md`
-- `docs/reliability.md`
+```text
+95 PASS
+0 FAIL
+0 SKIP
+```
 
-Une fois le noyau D1 testé, arrêter la phase. Ne pas commencer automatiquement SQLite, MQTT réel ou SIM800L sans validation explicite.
+## Arrêt de phase
+
+Ne pas commencer automatiquement :
+
+- SIM800L ;
+- pyserial ;
+- commandes AT ;
+- paho-mqtt ;
+- connexion broker ;
+- publication MQTT réelle ;
+- daemon/service Windows ;
+- Docker.
+
+Attendre une autorisation explicite pour la phase suivante.
