@@ -382,3 +382,25 @@ Des topics geofence existent également.
 Ils sont documentés comme faits observés mais ne sont pas inclus dans le protocole SMS D1 de cette phase.
 
 Toute prise en charge future doit être spécifiée séparément sans modifier silencieusement le contrat D1.
+
+
+## 16. Normalizer D1 implémenté
+
+**TESTÉ AUTOMATIQUEMENT**
+
+Le noyau `protocol/normalizer.py` reconstruit maintenant le contrat de télémétrie documenté sans utiliser de broker MQTT.
+
+Comportements couverts par tests :
+
+- `device_id` -> `kit_id` ;
+- `uptime36` décodé -> `timestamp_ms` ;
+- RTC valide -> `timestamp` ISO 8601 et `timezone = GMT+1` ;
+- RTC invalide -> absence de `timestamp` et `timezone` ;
+- GPS invalide -> `latitude = 0.0`, `longitude = 0.0` ;
+- batterie invalide -> V/A/W à `0.0` ;
+- solaire valide à production nulle -> `0.0` conservé ;
+- solaire invalide -> quatre valeurs à `null` ;
+- AC invalide -> valeurs publiées à `0.0` ;
+- champs propres au transport D1 (`protocol`, `sequence`, `flags`, `auth`) absents du payload MQTT final.
+
+Aucune connexion MQTT réelle n'est réalisée dans cette phase. Le résultat est un objet `DjuaMqttPayload` sérialisable en dictionnaire Python conforme à la structure documentée.
