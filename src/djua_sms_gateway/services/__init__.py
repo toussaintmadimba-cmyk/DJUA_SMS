@@ -6,10 +6,13 @@ from .ingestion import (
     IngestionResult,
     SmsIngestionService,
 )
+from .outbox_worker import MqttOutboxWorker, WorkerRunResult
 
 __all__ = [
     "IngestionConfig",
     "IngestionDisposition",
     "IngestionResult",
     "SmsIngestionService",
+    "MqttOutboxWorker",
+    "WorkerRunResult",
 ]
