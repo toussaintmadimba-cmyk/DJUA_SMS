@@ -94,22 +94,32 @@ Règles supplémentaires :
 
 ## Phase actuelle
 
-La phase actuelle est documentaire. Ne pas créer encore :
+La phase documentaire est terminée. La phase autorisée actuelle est limitée au **noyau logiciel du protocole D1**, testable sans matériel et sans réseau :
 
-- driver SIM800L complet ;
+- modèles D1 ;
+- parser CSV positionnel ;
+- décodage base36 et flags ;
+- validation structurelle ;
+- normalisation vers le payload MQTT DJUA ;
+- fixtures et tests unitaires du protocole.
+
+Ne pas créer pendant cette phase :
+
+- driver SIM800L ;
+- port série ou commandes AT ;
 - base SQLite fonctionnelle ;
-- publisher MQTT complet ;
-- service principal complet ;
+- publisher MQTT réel ou dépendance paho-mqtt ;
+- service principal/daemon ;
 - service Windows ;
 - interface graphique ;
 - Docker ;
 - API web.
 
-Les documents de référence de cette phase sont :
+Les documents de référence restent :
 
 - `docs/architecture.md`
 - `docs/sms_protocol.md`
 - `docs/mqtt_contract.md`
 - `docs/reliability.md`
 
-Ne pas commencer automatiquement la phase d'implémentation suivante sans validation explicite.
+Une fois le noyau D1 testé, arrêter la phase. Ne pas commencer automatiquement SQLite, MQTT réel ou SIM800L sans validation explicite.
