@@ -309,7 +309,7 @@ Le préfixe devra être configurable dans la gateway, mais sa valeur par défaut
 
 ### QoS
 
-Proposition :
+Implémentation DJUA_SMS :
 
 ```text
 QoS 1
@@ -347,7 +347,7 @@ confirmé end-to-end par le backend
 
 Le publisher doit pouvoir se reconnecter sans perdre les entrées de l'outbox.
 
-La stratégie temporelle exacte de backoff sera définie lors de l'implémentation et ne doit pas être figée arbitrairement dans cette phase.
+La gateway implémente désormais un backoff exponentiel simple et configurable, plafonné par `MQTT_RETRY_MAX_SECONDS`.
 
 ## 14. Topic status
 
@@ -404,3 +404,25 @@ Comportements couverts par tests :
 - champs propres au transport D1 (`protocol`, `sequence`, `flags`, `auth`) absents du payload MQTT final.
 
 Aucune connexion MQTT réelle n'est réalisée dans cette phase. Le résultat est un objet `DjuaMqttPayload` sérialisable en dictionnaire Python conforme à la structure documentée.
+
+
+## 17. Transport MQTT DJUA_SMS implémenté
+
+**TESTÉ AUTOMATIQUEMENT**
+
+Le worker ne reconstruit ni le topic ni le payload. Il publie exactement :
+
+```text
+mqtt_outbox.topic
+mqtt_outbox.payload_json
+mqtt_outbox.qos
+mqtt_outbox.retain
+```
+
+Le topic reste donc celui créé lors de l'ingestion.
+
+La validation D1 existante limite déjà `device_id` à `[A-Z0-9-]{1,32}`, ce qui exclut `/`, `+` et `#` et empêche une injection de structure MQTT. Un test d'intégration protège ce point.
+
+Le Client ID de la gateway est indépendant de tous les `device_id` terrain.
+
+Pour QoS 1, le callback `on_publish` de Paho correspond au PUBACK reçu du broker ; la ligne SQLite n'est marquée `PUBLISHED` qu'à ce moment. La confirmation du broker ne constitue toujours pas une preuve que le backend a persisté le message.
