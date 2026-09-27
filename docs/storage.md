@@ -149,7 +149,7 @@ uptime_ms
 canonical_logical_message
 ```
 
-Le message canonique contient les valeurs D1 déjà parsées et les flags, mais pas le texte `auth`.
+Le message canonique contient les valeurs D1 déjà parsées et les flags, mais pas le texte `auth`. Les valeurs appartenant à un groupe déclaré invalide sont canonicalisées à `null`, car le normalizer les ignore également.
 
 Ainsi, des représentations textuelles équivalentes restent idempotentes.
 
