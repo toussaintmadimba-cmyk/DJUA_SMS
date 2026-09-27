@@ -94,7 +94,7 @@ Sont maintenant implémentés dans DJUA_SMS :
 La suite complète compte actuellement :
 
 ```text
-95 PASS
+96 PASS
 0 FAIL
 0 SKIP
 ```
