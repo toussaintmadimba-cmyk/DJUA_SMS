@@ -315,3 +315,52 @@ Une modification incompatible de l'ordre, du sens ou de l'encodage des champs ex
 D1 ne doit pas être étendu silencieusement.
 
 Les événements geofence ne sont pas inclus dans D1 pendant cette phase.
+
+
+## 16. État d'implémentation du noyau D1
+
+**TESTÉ AUTOMATIQUEMENT**
+
+Le noyau Python implémente désormais, sans matériel ni réseau :
+
+- découpage strict des 23 champs ;
+- rejet des espaces et caractères non ASCII ;
+- décodage base36 strict de `seq` et `uptime36` ;
+- décodage des flags `00` à `1F` ;
+- conversion des valeurs numériques ;
+- validation de `NaN` / `Infinity` ;
+- validation des coordonnées lorsque le GPS est déclaré valide ;
+- conservation du signe des courants ;
+- normalisation vers le contrat MQTT documenté.
+
+La gestion HMAC n'est pas implémentée : un tag d'authentification de forme correcte est conservé mais reste explicitement `AUTH_NOT_VERIFIED`.
+
+### Timezone actuellement supportée
+
+Le contrat DJUA observé publie actuellement `GMT+1`. Pour ne pas inventer une nouvelle convention backend, le validator accepte en mode RTC valide uniquement :
+
+```text
+tz_min = 60
+```
+
+Les autres offsets restent à valider avant élargissement du contrat de normalisation.
+
+### Taille D1 mesurée par tests
+
+Les longueurs ne sont plus seulement estimées. Les fixtures testées donnent :
+
+| Cas | Longueur |
+|---|---:|
+| minimal | 48 |
+| typique avec auth compact | 159 |
+| valeurs larges | 189 |
+| valeurs négatives | 167 |
+| maximum raisonnable de test | 224 |
+
+Le cas typique tient dans 160 caractères, mais plusieurs cas réalistes dépassent cette limite.
+
+```text
+RISQUE SMS > 160 : CONFIRMÉ PAR TEST
+```
+
+Le protocole D1 n'est pas modifié automatiquement à la suite de ce résultat. Les optimisations possibles restent à étudier séparément : précision décimale, encodages plus compacts, champs implicites ou réduction contrôlée des métadonnées.
