@@ -103,13 +103,13 @@ PYTHONPATH=src:. python -m unittest discover -s tests -p 'test_*.py'
 Résultat actuel :
 
 ```text
-95 tests
-95 PASS
+96 tests
+96 PASS
 0 FAIL
 0 SKIP
 ```
 
-Les 58 tests du noyau D1 restent verts et 37 tests supplémentaires couvrent SQLite, déduplication, crash/reprise, multi-device, `uint32 millis()` et la distinction solaire `null` / `0.0`.
+Les 58 tests du noyau D1 restent verts et 38 tests supplémentaires couvrent SQLite, déduplication, crash/reprise, multi-device, `uint32 millis()` et la distinction solaire `null` / `0.0`.
 
 ## Hors périmètre actuel
 
