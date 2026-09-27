@@ -1,5 +1,7 @@
 # Protocole SMS DJUA — D1
 
+> Règle de projet : `toussaintmadimba-cmyk/DJUA` est **READ ONLY**. Ce document utilise DJUA uniquement comme source de référence et n'autorise aucune modification du firmware ou du backend.
+
 ## 1. Statut
 
 Ce document définit le protocole conceptuel de télémétrie SMS `D1` pour DJUA_SMS.
