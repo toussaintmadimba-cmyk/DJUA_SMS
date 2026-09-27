@@ -70,7 +70,7 @@ uptime_ms
 représentation sémantique D1 canonique
 ```
 
-La représentation canonique utilise les valeurs déjà parsées et exclut le texte `auth`.
+La représentation canonique utilise les valeurs déjà parsées, exclut le texte `auth` et remplace par `null` les valeurs appartenant à un groupe déclaré invalide par ses flags. Ainsi, deux encodages différents d'une donnée volontairement ignorée par le normalizer restent la même télémétrie logique.
 
 Conséquences testées :
 
