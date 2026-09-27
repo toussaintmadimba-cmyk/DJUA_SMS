@@ -136,7 +136,7 @@ L'invalidité ne supprime pas la preuve brute.
 
 ## 7. MQTT outbox
 
-**TESTÉ AUTOMATIQUEMENT sans réseau**
+**TESTÉ AUTOMATIQUEMENT, y compris jusqu'au transport MQTT simulé**
 
 Chaque publication future contient :
 
@@ -246,7 +246,7 @@ Un échec temporaire laisse l'outbox `PENDING`.
 
 Un échec explicitement terminal peut passer à `FAILED`, sans suppression de la ligne.
 
-Aucune stratégie de backoff numérique n'est encore imposée.
+Le transport MQTT utilise maintenant un backoff exponentiel simple `base * 2^attempt_count`, plafonné par une valeur configurable.
 
 ## 12. Horodatage
 
@@ -286,3 +286,50 @@ Non validé dans cette phase :
 - exactly-once end-to-end.
 
 La garantie actuelle est une garantie de **persistance locale et d'idempotence de la gateway simulée**, pas une validation matérielle ou réseau.
+
+
+## 15. PUBACK et persistance
+
+**TESTÉ AUTOMATIQUEMENT**
+
+Le mapping en mémoire est :
+
+```text
+mid -> outbox_id
+```
+
+Un PUBACK ne modifie que l'outbox associée à ce `mid`. Deux ACK reçus dans un ordre différent sont correctement associés.
+
+Le code protège également le cas où le callback `on_publish` arrive avant que le thread appelant ait terminé d'enregistrer le `mid`.
+
+## 16. Déconnexion et reconnexion
+
+Une coupure MQTT ne modifie pas le statut durable du message : tant qu'aucun PUBACK n'a été confirmé en SQLite, la ligne reste `PENDING`.
+
+Les lignes dues sont retrouvées après reconnexion ou redémarrage par `list_pending_outbox()`.
+
+## 17. Retry
+
+Les champs existants sont utilisés :
+
+```text
+attempt_count
+last_error
+next_attempt_at
+```
+
+Le calcul est exponentiel et plafonné. Aucun payload n'est supprimé sur échec.
+
+## 18. Crash autour du PUBACK
+
+### Avant PUBACK
+
+Après redémarrage, la ligne reste `PENDING` et est republiable.
+
+### Après PUBACK mais avant commit SQLite
+
+Une republication est possible. C'est une conséquence assumée de la garantie **at least once**. DJUA_SMS ne prétend pas offrir exactly-once end-to-end.
+
+## 19. Validation réseau restante
+
+Le comportement logique du client, du worker et des callbacks est testé avec doubles MQTT. Le test contre un broker réel est séparé dans `scripts/mqtt_test.py` et dépend de l'environnement d'exécution.
