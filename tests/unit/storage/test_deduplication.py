@@ -10,7 +10,12 @@ from djua_sms_gateway.storage.repository import (
     compute_logical_dedupe_key,
     compute_raw_dedupe_key,
 )
-from tests.fixtures.d1_messages import D1_VALID_ALL, D1_VALID_ALL_AUTH, replace_field
+from tests.fixtures.d1_messages import (
+    D1_GPS_INVALID,
+    D1_VALID_ALL,
+    D1_VALID_ALL_AUTH,
+    replace_field,
+)
 
 
 class DeduplicationTests(unittest.TestCase):
@@ -75,6 +80,16 @@ class DeduplicationTests(unittest.TestCase):
         self.assertEqual(
             compute_logical_dedupe_key(a),
             compute_logical_dedupe_key(b),
+        )
+
+    def test_logical_key_ignores_values_declared_invalid(self) -> None:
+        missing = parse_d1(D1_GPS_INVALID)
+        zeroed_message = replace_field(D1_GPS_INVALID, 7, "0")
+        zeroed_message = replace_field(zeroed_message, 8, "0")
+        zeroed = parse_d1(zeroed_message)
+        self.assertEqual(
+            compute_logical_dedupe_key(missing),
+            compute_logical_dedupe_key(zeroed),
         )
 
     def test_same_sequence_on_different_devices_is_not_duplicate(self) -> None:
