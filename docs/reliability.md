@@ -1,5 +1,7 @@
 # Fiabilité, non-perte et reprise
 
+> Règle de projet : `toussaintmadimba-cmyk/DJUA` est **READ ONLY**. Toutes les stratégies décrites ici concernent exclusivement `DJUA_SMS`.
+
 ## 1. Objectif
 
 DJUA_SMS doit privilégier la conservation des données avant la rapidité de publication.
