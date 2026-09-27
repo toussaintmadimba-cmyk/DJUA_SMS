@@ -49,7 +49,7 @@ toussaintmadimba-cmyk/DJUA_SMS
 
 ## État du projet
 
-Deux couches sont maintenant implémentées et testées sans matériel ni réseau :
+Trois couches sont maintenant implémentées :
 
 1. **noyau protocolaire D1**
    - `SmsTelemetry`, `ValidationResult`, `DjuaMqttPayload` ;
@@ -64,8 +64,16 @@ Deux couches sont maintenant implémentées et testées sans matériel ni résea
    - déduplication brute et logique ;
    - conservation des SMS invalides ;
    - outbox MQTT persistante ;
-   - reprise après redémarrage ;
-   - APIs futures `mark_outbox_published()` et `record_publish_failure()`.
+   - reprise après redémarrage.
+
+3. **transport MQTT**
+   - `paho-mqtt==2.1.0` ;
+   - client gateway indépendant des Client ID ESP32 ;
+   - QoS 1 et suivi PUBACK par `mid` ;
+   - mapping `mid -> outbox_id` ;
+   - retry exponentiel plafonné ;
+   - reprise des outbox `PENDING` après coupure/redémarrage ;
+   - `mark_outbox_published()` seulement après ACK correspondant.
 
 Le pipeline simulé est :
 
@@ -90,7 +98,7 @@ transaction atomique :
   + mqtt_outbox -> PENDING
 ```
 
-La phase ne publie rien sur le réseau.
+Le publisher réel est implémenté. Les tests automatisés utilisent des doubles sans broker ; un script séparé permet un test manuel avec un broker réel.
 
 ### Tests
 
@@ -103,13 +111,13 @@ PYTHONPATH=src:. python -m unittest discover -s tests -p 'test_*.py'
 Résultat actuel :
 
 ```text
-96 tests
-96 PASS
+123 tests
+123 PASS
 0 FAIL
 0 SKIP
 ```
 
-Les 58 tests du noyau D1 restent verts et 38 tests supplémentaires couvrent SQLite, déduplication, crash/reprise, multi-device, `uint32 millis()` et la distinction solaire `null` / `0.0`.
+Les 96 tests précédents restent verts. 27 tests supplémentaires couvrent MQTT, PUBACK, deux publications en vol, déconnexion/reconnexion, retry/backoff et récupération après crash.
 
 ## Hors périmètre actuel
 
@@ -119,11 +127,24 @@ Toujours non implémentés :
 - pyserial ;
 - commandes AT ;
 - suppression réelle des SMS modem ;
-- paho-mqtt ;
-- connexion à un broker ;
-- publication MQTT réelle ;
 - daemon/service Windows ;
 - Docker ;
 - modification du firmware DJUA.
+
+### Installation MQTT
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+La configuration est fournie par variables d'environnement ; `.env.example` documente les noms attendus. Aucun secret réel n'est versionné.
+
+Test manuel broker :
+
+```bash
+PYTHONPATH=src python scripts/mqtt_test.py
+```
+
+Le script publie uniquement un message `DJUA_SMS_MQTT_CONNECTIVITY_TEST` sur un topic de diagnostic, jamais une fausse télémétrie terrain. Voir `docs/mqtt_transport.md`.
 
 La phase suivante ne doit pas commencer sans autorisation explicite.
