@@ -89,26 +89,27 @@ Sont maintenant implémentés dans DJUA_SMS :
 - `SmsIngestionService` synchrone ;
 - reprise des outbox `PENDING` après redémarrage ;
 - API de marquage `PUBLISHED` ;
-- API d'enregistrement des échecs futurs de publication.
+- API d'enregistrement des échecs de publication ;
+- client MQTT Paho isolé derrière une interface ;
+- worker outbox MQTT ;
+- suivi QoS 1 / PUBACK par `mid` ;
+- retry/backoff et reprise après déconnexion.
 
 La suite complète compte actuellement :
 
 ```text
-96 PASS
+123 PASS
 0 FAIL
 0 SKIP
 ```
 
-## Arrêt de phase
+## Arrêt de phase MQTT
 
 Ne pas commencer automatiquement :
 
 - SIM800L ;
 - pyserial ;
 - commandes AT ;
-- paho-mqtt ;
-- connexion broker ;
-- publication MQTT réelle ;
 - daemon/service Windows ;
 - Docker.
 
