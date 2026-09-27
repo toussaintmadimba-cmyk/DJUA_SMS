@@ -76,17 +76,40 @@ Cette phase stabilise la conception avant toute implémentation applicative impo
 
 ## État du projet
 
-La phase documentaire couvre :
+La phase documentaire est terminée et le **noyau logiciel D1** est maintenant implémenté.
 
-1. lecture de DJUA sans modification ;
-2. cartographie du contrat de télémétrie actuel ;
-3. identification des topics et payloads MQTT ;
-4. identification des données disponibles côté boîtier ;
-5. conception du protocole SMS D1 ;
-6. conception de l'architecture de DJUA_SMS ;
-7. mapping SMS -> MQTT ;
-8. stockage, déduplication, outbox, retry et reprise après panne.
+Implémenté dans cette phase :
 
-Aucun driver SIM800L complet, service principal, stockage SQLite fonctionnel ou publisher MQTT complet n'est créé pendant cette phase.
+- modèles `SmsTelemetry`, `ValidationResult` et `DjuaMqttPayload` ;
+- parser strict des 23 champs D1 ;
+- décodage base36 et flags ;
+- validation structurelle sans seuil électrique naïf ;
+- normalisation vers le contrat MQTT DJUA ;
+- fixtures et tests unitaires, dont la taille SMS.
 
-L'adaptation future du firmware émetteur DJUA au SMS est hors périmètre de ce dépôt et doit faire l'objet d'une tâche séparée explicitement autorisée.
+Tests exécutés sans SIM800L, sans port série, sans SQLite et sans broker :
+
+```bash
+PYTHONPATH=src:. python -m unittest discover -s tests -p 'test_*.py'
+```
+
+Résultat de cette phase :
+
+```text
+58 tests
+58 PASS
+0 FAIL
+0 SKIP
+```
+
+Le test de taille confirme qu'un D1 typique avec auth compact peut atteindre 159 caractères, et que certains cas réalistes dépassent 160 caractères. Le protocole n'a pas été modifié automatiquement : ce point reste à arbitrer avant l'émetteur réel.
+
+Toujours hors périmètre :
+
+- SIM800L réel et commandes AT ;
+- SQLite fonctionnel ;
+- publisher MQTT réel ;
+- daemon/service ;
+- adaptation du firmware DJUA.
+
+L'adaptation future du firmware émetteur DJUA au SMS reste une tâche séparée explicitement autorisée.
