@@ -64,17 +64,29 @@ CONTRAT MQTT DJUA EXISTANT
 
 Les métadonnées propres au SMS — version de protocole, numéro de séquence, flags de validité, checksum ou authentification — peuvent exister dans le SMS sans être ajoutées au payload MQTT du backend.
 
+## Documentation d'architecture
+
+Cette phase stabilise la conception avant toute implémentation applicative importante.
+
+- [Règles du projet et garde-fous](AGENTS.md)
+- [Architecture complète](docs/architecture.md)
+- [Protocole SMS D1](docs/sms_protocol.md)
+- [Contrat MQTT observé](docs/mqtt_contract.md)
+- [Fiabilité, déduplication et reprise](docs/reliability.md)
+
 ## État du projet
 
-La première phase consiste à :
+La phase documentaire couvre :
 
-1. lire DJUA sans le modifier ;
-2. cartographier le contrat de télémétrie actuel ;
-3. identifier les topics et payloads MQTT ;
-4. identifier les données disponibles côté boîtier ;
-5. concevoir le protocole SMS ;
-6. concevoir l'architecture de DJUA_SMS ;
-7. définir le mapping SMS -> MQTT ;
-8. définir stockage, déduplication, retry et reprise après panne.
+1. lecture de DJUA sans modification ;
+2. cartographie du contrat de télémétrie actuel ;
+3. identification des topics et payloads MQTT ;
+4. identification des données disponibles côté boîtier ;
+5. conception du protocole SMS D1 ;
+6. conception de l'architecture de DJUA_SMS ;
+7. mapping SMS -> MQTT ;
+8. stockage, déduplication, outbox, retry et reprise après panne.
+
+Aucun driver SIM800L complet, service principal, stockage SQLite fonctionnel ou publisher MQTT complet n'est créé pendant cette phase.
 
 L'adaptation future du firmware émetteur DJUA au SMS est hors périmètre de ce dépôt et doit faire l'objet d'une tâche séparée explicitement autorisée.
