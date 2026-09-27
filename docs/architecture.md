@@ -31,7 +31,7 @@ DJUA_SMS
     +--> MQTT outbox SQLite
     |
     v
-MQTT publisher (phase future)
+MQTT publisher
     |
     v
 broker
@@ -111,9 +111,23 @@ Non implémentés dans cette phase.
 
 ### MQTT publisher
 
-**PHASE FUTURE**
+**TESTÉ AUTOMATIQUEMENT**
 
-Non implémenté. Il consommera l'outbox persistante.
+Le transport est séparé en trois responsabilités :
+
+```text
+PahoMqttClient
+    ↓
+MqttPublisher
+    ↓
+MqttOutboxWorker
+```
+
+- `PahoMqttClient` gère connexion, déconnexion, reconnexion et callbacks Paho ;
+- `MqttPublisher` publie exactement `topic` et `payload_json` de l'outbox et associe `mid -> outbox_id` ;
+- `MqttOutboxWorker` charge les lignes `PENDING` dues par ordre d'id et déclenche les publications.
+
+Le worker ne parse pas D1 et ne renormalise pas la télémétrie.
 
 ## 4. Frontière de non-perte
 
@@ -207,16 +221,23 @@ via `list_pending_outbox()`.
 
 Aucune entrée `PENDING` n'est supprimée automatiquement au démarrage.
 
-## 8. Publication future
+## 8. Publication MQTT
 
-Le repository expose déjà :
+**TESTÉ AUTOMATIQUEMENT avec client simulé**
 
-- `mark_outbox_published()` ;
-- `record_publish_failure()`.
+La publication suit maintenant :
 
-Mais aucun broker n'est contacté dans cette phase.
+```text
+mqtt_outbox PENDING
+-> publish(topic, payload_json, qos, retain)
+-> mid
+-> PUBACK correspondant
+-> mark_outbox_published(outbox_id)
+```
 
-Le futur publisher devra utiliser ces APIs après résultat réseau réel, notamment après confirmation broker lorsque QoS 1 sera utilisé.
+Un simple retour de `publish()` ne suffit jamais à marquer la ligne `PUBLISHED`.
+
+En cas d'échec immédiat ou de timeout PUBACK, `record_publish_failure()` incrémente `attempt_count`, conserve le payload et planifie `next_attempt_at`.
 
 ## 9. Hors périmètre
 
@@ -225,10 +246,23 @@ Non implémentés :
 - SIM800L ;
 - pyserial ;
 - AT commands ;
-- MQTT réseau ;
-- paho-mqtt ;
 - daemon ;
 - service Windows ;
 - Docker.
 
 Les comportements modem et end-to-end restent à valider dans les phases correspondantes.
+
+
+## 10. Client ID et multi-device
+
+Le Client ID par défaut de la gateway est :
+
+```text
+djua-sms-gateway-001
+```
+
+Il est indépendant du `device_id` des SMS. Un seul client gateway peut publier les topics de plusieurs boîtiers.
+
+## 11. Limite de garantie
+
+QoS 1 fournit une livraison **at least once** vers le broker. Si le broker a accepté un message mais que le processus meurt avant le commit SQLite de `PUBLISHED`, l'outbox reste `PENDING` et une republication est possible.
