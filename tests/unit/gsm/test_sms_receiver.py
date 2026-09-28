@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from djua_sms_gateway.gsm.serial_transport import SerialTransportError
 from djua_sms_gateway.gsm.sms_receiver import ReceiveDisposition, SmsReceiver
 from djua_sms_gateway.services.ingestion import SmsIngestionService
 from djua_sms_gateway.storage import Database, SmsRepository
@@ -79,6 +80,23 @@ class SmsReceiverTests(unittest.TestCase):
         self.assertFalse(result.deleted)
         self.assertEqual(self.repository.count_inbound(), 1)
         self.assertEqual(self.repository.count_outbox(), 1)
+
+    def test_serial_loss_during_read_is_propagated_for_gateway_reconnect(self):
+        modem = FakeModem(notifications=[cmti(6)])
+        modem.read_error = SerialTransportError("USB disconnected")
+        with self.assertRaises(SerialTransportError):
+            self.receiver(modem).poll_once()
+        self.assertEqual(modem.deleted, [])
+
+    def test_serial_loss_during_delete_occurs_after_persistence_and_is_propagated(self):
+        sms = modem_sms(D1_VALID_ALL, index=6)
+        modem = FakeModem([sms])
+        modem.delete_error = SerialTransportError("USB disconnected")
+        with self.assertRaises(SerialTransportError):
+            self.receiver(modem).process_sms(sms)
+        self.assertEqual(self.repository.count_inbound(), 1)
+        self.assertEqual(self.repository.count_outbox(), 1)
+        self.assertEqual(modem.deleted, [])
 
     def test_read_failure_does_not_delete(self):
         modem = FakeModem(notifications=[cmti(5)])
