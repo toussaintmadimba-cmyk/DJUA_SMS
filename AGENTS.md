@@ -684,35 +684,132 @@ Ne pas transformer ce fichier en encyclopédie générale.
 Lorsque l'utilisateur demande :
 
 ```text
-explique-moi ce projet
+rattrapage apprentissage initial
+```
+
+considérer qu'il s'agit d'une initialisation pédagogique complète d'un projet déjà largement développé avant la mise en place du système d'apprentissage.
+
+Pendant cette phase :
+
+- ne modifier aucun code fonctionnel ;
+- ne refactoriser aucun composant ;
+- ne corriger aucun bug découvert ;
+- ne changer aucune architecture ;
+- ne démarrer aucune nouvelle fonctionnalité.
+
+Les seuls fichiers pouvant être créés ou modifiés sont les fichiers de documentation et d'apprentissage nécessaires.
+
+## Analyse du projet
+
+Reconstruire l'état réel du dépôt.
+
+Identifier :
+
+1. l'objectif actuel du projet ;
+2. l'architecture générale ;
+3. les technologies, frameworks, bibliothèques et services importants ;
+4. le rôle des principaux dossiers ;
+5. les fichiers et composants réellement structurants ;
+6. les principaux flux de données ;
+7. les communications entre composants ;
+8. les mécanismes de sécurité présents ;
+9. la stratégie de stockage ;
+10. les modèles de données importants ;
+11. les tests existants et ce qu'ils couvrent ;
+12. la configuration et le processus de lancement ;
+13. le processus de déploiement lorsqu'il existe ;
+14. les zones importantes incomplètes, fragiles, obsolètes ou difficiles à comprendre.
+
+Pour DJUA_SMS, analyser notamment les flux :
+
+```text
+SIM800L
+→ commandes AT
+→ réception SMS
+→ persistance
+→ parsing / validation D1
+→ normalisation
+→ outbox
+→ MQTT
+```
+
+et :
+
+```text
+indisponibilité / redémarrage
+→ persistance
+→ recovery
+→ retry
+→ publication
+```
+
+## Carte pédagogique
+
+Classer les concepts rencontrés en :
+
+```text
+INDISPENSABLES MAINTENANT
+IMPORTANTS PROCHAINEMENT
+AVANCÉS
+NON PRIORITAIRES POUR L'INSTANT
+```
+
+Ne jamais considérer qu'un concept est maîtrisé simplement parce qu'il apparaît dans le code.
+
+Un concept découvert pendant l'analyse doit initialement être considéré comme :
+
+```text
+À VÉRIFIER
 ```
 
 ou :
 
 ```text
-rattrapage apprentissage
+À APPRENDRE
 ```
 
-ne pas parcourir chaque ligne.
+tant que la compréhension de l'utilisateur n'a pas été évaluée.
 
-Reconstruire d'abord :
+## Initialisation de l'apprentissage
 
-1. objectif du projet ;
-2. architecture générale ;
-3. modules principaux ;
-4. flux SMS principal ;
-5. flux MQTT principal ;
-6. persistance ;
-7. reprise après panne ;
-8. tests ;
-9. interactions matérielles ;
-10. concepts essentiels.
+Créer si nécessaire :
 
-Identifier ensuite les composants que l'utilisateur doit comprendre en priorité.
+```text
+docs/learning/progress.md
+docs/learning/concepts.md
+```
 
-Ne pas modifier du code fonctionnel pendant une phase explicitement demandée comme analyse seule.
+Dans `progress.md`, établir le point de départ pédagogique.
 
----
+Ne marquer aucun concept comme compris sans preuve suffisante de compréhension de l'utilisateur.
+
+Dans `concepts.md`, documenter uniquement les concepts structurants réellement présents dans le projet.
+
+Utiliser des exemples provenant du code réel.
+
+## Rapport initial
+
+À la fin du rattrapage, présenter :
+
+1. une carte simple de l'architecture ;
+2. les 5 à 10 fichiers ou composants à comprendre en premier ;
+3. les 5 concepts prioritaires ;
+4. le parcours complet d'une donnée réelle dans le système ;
+5. les parties pouvant être ignorées temporairement ;
+6. les zones fragiles ou encore non validées ;
+7. cinq questions permettant d'évaluer le niveau réel de compréhension de l'utilisateur.
+
+Les questions doivent tester principalement le raisonnement et la compréhension du système, pas la mémorisation de syntaxe.
+
+Après les réponses de l'utilisateur :
+
+- corriger les incompréhensions ;
+- identifier les concepts compris ;
+- identifier les concepts fragiles ;
+- identifier les concepts inconnus ;
+- mettre à jour `docs/learning/progress.md`.
+
+Cette phase constitue le point de départ du suivi pédagogique du projet.
 
 # 22. CHECKPOINT D'APPRENTISSAGE
 
