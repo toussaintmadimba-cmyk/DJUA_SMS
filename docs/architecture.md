@@ -1,6 +1,6 @@
 # Architecture DJUA_SMS
 
-> `toussaintmadimba-cmyk/DJUA` reste **READ ONLY**.
+> `toussaintmadimba-cmyk/DJUA` reste strictement **READ ONLY**.
 
 ## 1. Architecture cible
 
@@ -20,18 +20,31 @@ SMS / réseau GSM
 SIM800L récepteur
     |
     v
-DJUA_SMS
-    |
-    +--> stockage brut SQLite
-    +--> déduplication brute
-    +--> parser D1
-    +--> validator
-    +--> déduplication logique
-    +--> normalizer
-    +--> MQTT outbox SQLite
+PySerialTransport
     |
     v
-MQTT publisher
+AtProtocol
+    |
+    v
+Sim800Modem
+    |
+    v
+SmsReceiver
+    |
+    v
+SmsIngestionService
+    |
+    +--> inbound_sms
+    +--> parser / validator D1
+    +--> déduplication
+    +--> normalizer
+    +--> mqtt_outbox PENDING
+    |
+    v
+MqttOutboxWorker
+    |
+    v
+PahoMqttClient
     |
     v
 broker
@@ -40,229 +53,256 @@ broker
 backend DJUA
 ```
 
-Le SMS est le transport cible officiel du boîtier. Il n'est pas un fallback du Wi-Fi.
+Le boîtier terrain cible SMS comme transport. DJUA_SMS transforme ensuite le SMS en contrat MQTT compatible.
 
-## 2. Architecture DJUA actuelle — référence uniquement
+## 2. DJUA comme référence
 
-**CONFIRMÉ PAR DJUA**
+Le dépôt DJUA peut être lu pour comprendre :
 
-Le dépôt de référence contient encore un chemin direct :
+- le contrat de télémétrie ;
+- les topics ;
+- les noms de champs ;
+- les unités.
+
+Il n'est jamais modifié par ce projet.
+
+## 3. Couche GSM
+
+### serial_transport
+
+**TESTÉ AUTOMATIQUEMENT**
+
+Responsable uniquement du port série :
 
 ```text
-ESP32 -> Wi-Fi -> MQTT / HTTP -> backend
+open
+close
+write
+read
+timeouts
+buffers
+reconnect
 ```
 
-DJUA_SMS utilise ce code uniquement pour comprendre le contrat existant. Il ne le modifie pas.
+Il ne connaît ni SMS, ni D1, ni SQLite, ni MQTT.
 
-## 3. Frontières de modules
-
-### protocol
+### at_protocol
 
 **TESTÉ AUTOMATIQUEMENT**
 
 Responsable de :
 
-- parsing D1 ;
-- base36 ;
-- flags ;
-- validation ;
-- normalisation vers le contrat MQTT.
+```text
+AT command
+response lines
+OK
+ERROR
++CME ERROR
++CMS ERROR
+timeout
+URC queue
+```
 
-Il ne connaît ni SQLite, ni port série, ni broker.
+Les notifications `+CMTI` intercalées pendant une commande sont conservées.
 
-### storage
+### modem
 
-**TESTÉ AUTOMATIQUEMENT**
+**TESTÉ AUTOMATIQUEMENT avec transport simulé**
 
 Responsable de :
 
-- création/version du schéma SQLite ;
-- stockage durable des SMS bruts ;
-- contraintes UNIQUE ;
-- clés de déduplication ;
-- outbox ;
-- reprise des éléments `PENDING` ;
-- transitions `PUBLISHED` / échecs futurs.
+- AT ;
+- CMEE ;
+- CPIN ;
+- CREG ;
+- CSQ ;
+- CMGF ;
+- CPMS ;
+- CNMI ;
+- CMTI ;
+- CMGR ;
+- CMGL ;
+- CMGD.
 
-Il ne connaît ni le modem ni le broker.
+Le comportement physique du SIM800L reste **À VALIDER AVEC SIM800L RÉEL**.
 
-### services/ingestion
-
-**TESTÉ AUTOMATIQUEMENT**
-
-Orchestre :
-
-```text
-RawSmsInput
--> store_raw_sms()
--> parse_d1()
--> validate_telemetry()
--> normalize_to_mqtt()
--> queue_valid_sms()
-```
-
-Il ne publie aucun paquet réseau.
-
-### modem / SMS receiver
-
-**À VALIDER AVEC SIM800L RÉEL**
-
-Non implémentés dans cette phase.
-
-### MQTT publisher
+### sms_receiver
 
 **TESTÉ AUTOMATIQUEMENT**
 
-Le transport est séparé en trois responsabilités :
+Pipeline :
 
 ```text
-PahoMqttClient
-    ↓
-MqttPublisher
-    ↓
-MqttOutboxWorker
++CMTI
+-> CMGR
+-> ModemSms
+-> RawSmsInput
+-> SmsIngestionService
+-> durable ?
+-> CMGD exact
 ```
 
-- `PahoMqttClient` gère connexion, déconnexion, reconnexion et callbacks Paho ;
-- `MqttPublisher` publie exactement `topic` et `payload_json` de l'outbox et associe `mid -> outbox_id` ;
-- `MqttOutboxWorker` charge les lignes `PENDING` dues par ordre d'id et déclenche les publications.
-
-Le worker ne parse pas D1 et ne renormalise pas la télémétrie.
+Il ne manipule pas directement les tables SQLite.
 
 ## 4. Frontière de non-perte
 
-**TESTÉ AUTOMATIQUEMENT côté SQLite**
-
-La première transaction est indépendante du parsing :
+La première frontière est :
 
 ```text
 SMS brut
-    |
-    v
-INSERT inbound_sms
-    |
-    v
-COMMIT
+-> inbound_sms
+-> COMMIT
 ```
 
-`store_raw_sms()` ne retourne `STORED` qu'après la réussite de cette transaction.
-
-Le futur driver SIM800L pourra donc interpréter :
+Pour un D1 valide, l'ingestion ajoute atomiquement :
 
 ```text
-STORED ou DUPLICATE
-= une copie durable existe déjà
+inbound_sms = QUEUED
++
+mqtt_outbox = PENDING
 ```
 
-et seulement ensuite envisager la suppression dans le modem.
+Le receiver n'exécute `AT+CMGD=<index>` qu'après le retour durable de l'ingestion.
 
-La suppression modem réelle reste à tester matériellement.
+Une panne SQLite interdit donc la suppression modem.
 
-## 5. Pipeline d'ingestion implémenté
+## 5. CMGD et MQTT sont indépendants
 
 ```text
-RawSmsInput
-    |
-    v
-persistance brute
-    |
-    +--> DUPLICATE_RAW : arrêt sans seconde ligne
-    |
-    v
-parse
-    |
-    +--> erreur : inbound_sms = INVALID
-    |
-    v
-validation
-    |
-    +--> INVALID_FORMAT : inbound_sms = INVALID
-    |
-    v
-déduplication logique
-    |
-    +--> DUPLICATE_LOGICAL : pas de seconde outbox
-    |
-    v
-normalisation MQTT
-    |
-    v
-transaction atomique
-    |
-    +--> inbound_sms = QUEUED
-    +--> mqtt_outbox = PENDING
+SMS
+-> SQLite durable
+-> CMGD
+-> MQTT plus tard
 ```
 
-Pour un SMS valide, la mise à jour de `inbound_sms` et l'insertion dans `mqtt_outbox` sont effectuées dans la même transaction SQLite. Un échec d'insertion outbox provoque le rollback de l'état `QUEUED`.
+CMGD n'attend pas PUBACK.
 
-## 6. Multi-device
+Une coupure Internet ne force donc pas le SIM800L à conserver indéfiniment un SMS déjà archivé localement.
 
-**TESTÉ AUTOMATIQUEMENT**
+## 6. Déduplication et crash avant CMGD
 
-Le `device_id` est inclus dans l'identité logique et dans le topic :
+Scénario :
 
 ```text
-djua/test/<device_id>/telemetry
+SQLite COMMIT
+-> crash
+-> CMGD non exécuté
+-> redémarrage
+-> SMS relu
+-> DUPLICATE_RAW
+-> aucune seconde outbox
+-> CMGD autorisé
 ```
 
-Des séquences identiques sur plusieurs boîtiers ne créent pas de collision.
+Ce scénario est testé.
 
-## 7. Reprise après redémarrage
+## 7. Startup recovery
 
-**TESTÉ AUTOMATIQUEMENT**
-
-Une nouvelle instance de `SmsRepository` ouverte sur le même fichier SQLite retrouve les outbox :
+Après initialisation modem :
 
 ```text
-status = PENDING
+AT+CMGL="ALL"
 ```
 
-via `list_pending_outbox()`.
+récupère les SMS déjà stockés.
 
-Aucune entrée `PENDING` n'est supprimée automatiquement au démarrage.
+Ils passent par exactement le même `SmsReceiver`.
 
-## 8. Publication MQTT
+La gateway ne dépend donc pas seulement des notifications reçues en temps réel.
 
-**TESTÉ AUTOMATIQUEMENT avec client simulé**
+## 8. Déconnexion série
 
-La publication suit maintenant :
+Une erreur pyserial devient `SerialTransportError`.
+
+La reconnexion rejoue :
+
+```text
+AT
+CPIN
+CREG
+CSQ
+CMGF
+CPMS
+CNMI
+CMGL
+```
+
+afin de ne pas supposer que les réglages du modem ont survécu.
+
+## 9. Orchestrateur
+
+`DjuaSmsGateway` coordonne :
+
+- `Sim800Modem` ;
+- `SmsReceiver` ;
+- `MqttOutboxWorker`.
+
+Il ne réimplémente pas leur logique métier.
+
+La V1 GSM reste synchrone.
+
+## 10. MQTT
+
+Le transport MQTT reste :
 
 ```text
 mqtt_outbox PENDING
--> publish(topic, payload_json, qos, retain)
+-> publish exact topic/payload
+-> QoS 1
 -> mid
--> PUBACK correspondant
--> mark_outbox_published(outbox_id)
+-> PUBACK
+-> mark_outbox_published()
 ```
 
-Un simple retour de `publish()` ne suffit jamais à marquer la ligne `PUBLISHED`.
-
-En cas d'échec immédiat ou de timeout PUBACK, `record_publish_failure()` incrémente `attempt_count`, conserve le payload et planifie `next_attempt_at`.
-
-## 9. Hors périmètre
-
-Non implémentés :
-
-- SIM800L ;
-- pyserial ;
-- AT commands ;
-- daemon ;
-- service Windows ;
-- Docker.
-
-Les comportements modem et end-to-end restent à valider dans les phases correspondantes.
-
-
-## 10. Client ID et multi-device
-
-Le Client ID par défaut de la gateway est :
+Garantie :
 
 ```text
-djua-sms-gateway-001
+at least once
 ```
 
-Il est indépendant du `device_id` des SMS. Un seul client gateway peut publier les topics de plusieurs boîtiers.
+et non exactly-once end-to-end.
 
-## 11. Limite de garantie
+## 11. Multi-device
 
-QoS 1 fournit une livraison **at least once** vers le broker. Si le broker a accepté un message mais que le processus meurt avant le commit SQLite de `PUBLISHED`, l'outbox reste `PENDING` et une republication est possible.
+Le même récepteur peut ingérer plusieurs :
+
+```text
+DJUA-KIN-000001
+DJUA-KIN-000002
+DJUA-KIN-000003
+```
+
+Le numéro expéditeur GSM reste distinct du `device_id` D1.
+
+La liaison sender <-> device_id appartient à une future phase sécurité.
+
+## 12. État de validation
+
+```text
+D1                    : TESTÉ AUTOMATIQUEMENT
+SQLite                : TESTÉ AUTOMATIQUEMENT
+MQTT logique          : TESTÉ AUTOMATIQUEMENT
+GSM/AT simulé         : TESTÉ AUTOMATIQUEMENT
+SIM800L réel          : NON TESTÉ
+SMS réel              : NON TESTÉ
+backend end-to-end    : NON TESTÉ DANS CETTE PHASE
+```
+
+Suite actuelle :
+
+```text
+177 PASS
+0 FAIL
+0 SKIP
+```
+
+## 13. Hors périmètre
+
+Cette phase n'implémente pas :
+
+- émetteur SMS ESP32 ;
+- modification du firmware DJUA ;
+- modification D1 ;
+- HMAC ;
+- service Windows ;
+- Docker.
