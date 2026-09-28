@@ -15,6 +15,7 @@ from djua_sms_gateway.storage.models import RawSmsInput
 
 from .models import CmtiNotification, ModemSms
 from .modem import ModemCommandError, Sim800Modem
+from .serial_transport import SerialTransportError
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,13 @@ class SmsReceiver:
         try:
             self.modem.delete_sms(sms.storage, sms.index)
             logger.info("SMS_DELETE_OK storage=%s index=%s", sms.storage, sms.index)
+        except SerialTransportError:
+            logger.warning(
+                "GSM_PORT_LOST_AFTER_PERSIST storage=%s index=%s",
+                sms.storage,
+                sms.index,
+            )
+            raise
         except Exception as exc:
             logger.warning(
                 "SMS_DELETE_FAILED storage=%s index=%s",
@@ -106,6 +114,8 @@ class SmsReceiver:
     def handle_notification(self, notification: CmtiNotification) -> SmsReceiveResult:
         try:
             sms = self.modem.read_sms(notification.storage, notification.index)
+        except SerialTransportError:
+            raise
         except Exception as exc:
             logger.warning(
                 "SMS_READ_FAILED storage=%s index=%s",
