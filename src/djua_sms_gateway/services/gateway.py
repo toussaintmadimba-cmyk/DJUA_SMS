@@ -67,6 +67,7 @@ class DjuaSmsGateway:
     def reconnect_modem(self):
         self._sleep(self.reconnect_seconds)
         report = self.modem.reconnect()
+        self._started = True
         recovery_results = []
         if report.sim_ready and report.sms_text_mode:
             recovery_results = self.sms_receiver.recover_stored_messages()
@@ -79,18 +80,25 @@ class DjuaSmsGateway:
         idle_sleep_seconds: float = 0.05,
     ) -> None:
         self._stopping = False
-        if not self._started:
-            self.startup()
         while not self._stopping:
             try:
+                if not self._started:
+                    self.startup()
                 self.run_once(gsm_poll_timeout_seconds=gsm_poll_timeout_seconds)
             except SerialTransportError:
                 logger.warning("GSM_PORT_LOST")
+                self._started = False
                 try:
                     self.reconnect_modem()
                 except Exception:
                     logger.exception("GSM_RECONNECT_FAILED")
                     self._sleep(self.reconnect_seconds)
+            except Exception:
+                if not self._started:
+                    logger.exception("GSM_STARTUP_FAILED")
+                    self._sleep(self.reconnect_seconds)
+                else:
+                    raise
             if idle_sleep_seconds > 0:
                 self._sleep(idle_sleep_seconds)
 
