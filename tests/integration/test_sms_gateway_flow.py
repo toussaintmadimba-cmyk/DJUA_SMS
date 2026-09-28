@@ -4,6 +4,7 @@ from pathlib import Path
 
 from djua_sms_gateway.gsm.at_protocol import AtProtocol
 from djua_sms_gateway.gsm.modem import Sim800Modem
+from djua_sms_gateway.gsm.serial_transport import SerialTransportError
 from djua_sms_gateway.gsm.sms_receiver import SmsReceiver
 from djua_sms_gateway.mqtt.publisher import MqttPublisher
 from djua_sms_gateway.services.gateway import DjuaSmsGateway
@@ -128,6 +129,33 @@ class SmsGatewayFlowTests(unittest.TestCase):
         self.assertEqual(repository.count_inbound(), 1)
         self.assertEqual(repository.count_outbox(), 1)
         self.assertIn("AT+CMGD=3", serial.commands)
+
+    def test_serial_loss_triggers_reconnect_and_full_modem_revalidation(self):
+        base = base_init_script()
+        script = {
+            command: [list(response), list(response)]
+            for command, response in base.items()
+        }
+        serial = ScriptedTransport(
+            script,
+            spontaneous=[SerialTransportError("USB disconnected")],
+        )
+        gateway, _ = self.build_gateway(serial)
+        gateway.startup()
+
+        receive_result, _ = gateway.run_once()
+        self.assertIsNone(receive_result)
+        self.assertEqual(serial.reconnect_calls, 1)
+        for command in (
+            "AT",
+            "AT+CPIN?",
+            "AT+CREG?",
+            "AT+CMGF=1",
+            "AT+CPMS?",
+            "AT+CNMI=2,1,0,0,0",
+            'AT+CMGL="ALL"',
+        ):
+            self.assertEqual(serial.commands.count(command), 2)
 
     def test_crash_before_cmgd_then_restart_is_duplicate_raw_and_single_outbox(self):
         repository = SmsRepository(Database(self.path))
