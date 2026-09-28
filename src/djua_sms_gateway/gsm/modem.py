@@ -21,6 +21,8 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+SMS_STORAGE_WARNING_RATIO = 0.80
+
 _CMTI_RE = re.compile(r'^\+CMTI:\s*"([^"]+)"\s*,\s*(\d+)\s*$')
 _CREG_RE = re.compile(r"^\+CREG:\s*(?:\d+\s*,\s*)?(\d+)(?:\s*,.*)?$")
 _CSQ_RE = re.compile(r"^\+CSQ:\s*(\d+)\s*,\s*(\d+)\s*$")
@@ -102,6 +104,17 @@ def parse_storage(lines: tuple[str, ...], known_name: str | None = None) -> SmsS
         if known_name is not None and len(fields) >= 2:
             return SmsStorage(known_name, int(fields[0]), int(fields[1]))
     return None
+
+
+def _log_storage(storage: SmsStorage) -> None:
+    ratio = storage.used / storage.total if storage.total > 0 else 0.0
+    log = logger.warning if ratio >= SMS_STORAGE_WARNING_RATIO else logger.info
+    log(
+        "SMS_STORAGE name=%s used=%s total=%s",
+        storage.name,
+        storage.used,
+        storage.total,
+    )
 
 
 def _parse_cmgr_header(line: str) -> tuple[str, str, str | None]:
@@ -232,12 +245,7 @@ class Sim800Modem:
         self._selected_storage = storage
         parsed = parse_storage(response.lines, known_name=storage)
         if parsed:
-            logger.info(
-                "SMS_STORAGE name=%s used=%s total=%s",
-                parsed.name,
-                parsed.used,
-                parsed.total,
-            )
+            _log_storage(parsed)
         return parsed
 
     def get_storage_status(self) -> SmsStorage | None:
@@ -247,12 +255,7 @@ class Sim800Modem:
         storage = parse_storage(response.lines, known_name=self._selected_storage)
         if storage:
             self._selected_storage = storage.name
-            logger.info(
-                "SMS_STORAGE name=%s used=%s total=%s",
-                storage.name,
-                storage.used,
-                storage.total,
-            )
+            _log_storage(storage)
         return storage
 
     def configure_cnmi(self, value: str | None = None) -> bool:
