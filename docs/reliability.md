@@ -12,7 +12,7 @@ ne dépend plus de la disponibilité d'Internet ou MQTT
 pour être conservé
 ```
 
-La persistance et la reprise sont maintenant **TESTÉES AUTOMATIQUEMENT** sans SIM800L et sans broker.
+La persistance, la reprise et la chaîne GSM simulée sont maintenant **TESTÉES AUTOMATIQUEMENT**. Le SIM800L physique et le SMS réel restent non validés.
 
 ## 2. Ordre de non-perte
 
@@ -25,9 +25,7 @@ lecture future depuis modem
 -> seulement ensuite suppression modem autorisable
 ```
 
-La partie `store_raw_sms() -> COMMIT` est implémentée.
-
-La suppression SIM800L reste **À VALIDER AVEC SIM800L RÉEL**.
+La partie `store_raw_sms() -> COMMIT -> autorisation CMGD` est implémentée et testée avec modem simulé. L'exécution de CMGD sur un SIM800L physique reste **À VALIDER AVEC SIM800L RÉEL**.
 
 ## 3. Déduplication brute
 
@@ -276,16 +274,27 @@ La gateway ne remplace jamais l'horodatage DJUA avec son heure locale de traitem
 
 ## 14. Limites
 
-Non validé dans cette phase :
+**TESTÉ AUTOMATIQUEMENT avec transport série simulé** :
+
+- `AT+CNMI` ;
+- `+CMTI` ;
+- `AT+CMGR` ;
+- `AT+CMGL` ;
+- `AT+CMGD=<index>` ;
+- disparition/reconnexion série ;
+- reconfiguration modem ;
+- persistance avant suppression.
+
+**NON VALIDÉ MATÉRIELLEMENT** :
 
 - mémoire réelle du SIM800L ;
-- `AT+CNMI`, `+CMTI`, `AT+CMGR`, `AT+CMGD` ;
-- disparition/reconnexion du port série ;
-- broker réel ;
+- port COM réel ;
+- vrai SMS ;
+- comportement CNMI réel ;
+- SMS concaténés ;
+- broker réel dans cet environnement ;
 - PUBACK réel ;
 - exactly-once end-to-end.
-
-La garantie actuelle est une garantie de **persistance locale et d'idempotence de la gateway simulée**, pas une validation matérielle ou réseau.
 
 
 ## 15. PUBACK et persistance
@@ -333,3 +342,80 @@ Une republication est possible. C'est une conséquence assumée de la garantie *
 ## 19. Validation réseau restante
 
 Le comportement logique du client, du worker et des callbacks est testé avec doubles MQTT. Le test contre un broker réel est séparé dans `scripts/mqtt_test.py` et dépend de l'environnement d'exécution.
+
+
+## 20. Contrat de suppression GSM
+
+**TESTÉ AUTOMATIQUEMENT**
+
+```text
+CMGR
+-> ingestion
+-> SQLite durable
+-> CMGD autorisé
+```
+
+Si SQLite échoue, CMGD n'est jamais appelé.
+
+Un SMS invalide peut être supprimé après archivage durable de son `raw_body`.
+
+Un `DUPLICATE_RAW` peut également être supprimé puisque sa copie existe déjà durablement.
+
+## 21. Crash avant CMGD
+
+Le test intégré couvre :
+
+```text
+CMGR
+-> SQLite COMMIT
+-> échec/crash avant CMGD
+-> relecture même SMS
+-> DUPLICATE_RAW
+-> une seule outbox
+-> CMGD réussi au second passage
+```
+
+## 22. Perte du port série
+
+Une perte du port pendant CMGR remonte à l'orchestrateur sans suppression.
+
+Une perte pendant CMGD intervient après persistance ; la base reste donc la source durable.
+
+Après reconnexion :
+
+```text
+AT
+CPIN
+CREG
+CSQ
+CMGF
+CPMS
+CNMI
+CMGL
+```
+
+sont rejoués.
+
+## 23. MQTT indisponible
+
+Le SMS modem peut être supprimé lorsque SQLite a durablement créé l'outbox, même si MQTT est hors ligne.
+
+```text
+SQLite durable
+-> CMGD
+-> mqtt_outbox PENDING
+-> retry MQTT plus tard
+```
+
+## 24. Tests
+
+État actuel :
+
+```text
+177 tests
+177 PASS
+0 FAIL
+0 SKIP
+```
+
+Le CI installe `pyserial==3.5` et `paho-mqtt==2.1.0`, compile les sources puis exécute toute la suite.
