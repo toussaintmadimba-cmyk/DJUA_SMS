@@ -1,6 +1,5 @@
 """Application services for DJUA_SMS."""
 
-from .gateway import DjuaSmsGateway
 from .ingestion import (
     IngestionConfig,
     IngestionDisposition,
@@ -10,7 +9,6 @@ from .ingestion import (
 from .outbox_worker import MqttOutboxWorker, WorkerRunResult
 
 __all__ = [
-    "DjuaSmsGateway",
     "IngestionConfig",
     "IngestionDisposition",
     "IngestionResult",
