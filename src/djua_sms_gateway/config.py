@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import re
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -26,6 +27,55 @@ def _env_int(name: str, default: int) -> int:
 def _env_float(name: str, default: float) -> float:
     raw = os.getenv(name)
     return default if raw is None or not raw.strip() else float(raw)
+
+
+@dataclass(frozen=True)
+class GsmConfig:
+    serial_port: str
+    baud_rate: int = 9600
+    serial_timeout_seconds: float = 0.5
+    serial_write_timeout_seconds: float = 2.0
+    init_retries: int = 3
+    command_timeout_seconds: float = 5.0
+    reconnect_seconds: float = 5.0
+    sms_storage: str | None = None
+    cnmi: str = "2,1,0,0,0"
+
+    def validate(self) -> "GsmConfig":
+        if not self.serial_port.strip():
+            raise ValueError("SERIAL_PORT must not be empty")
+        if self.baud_rate <= 0:
+            raise ValueError("SERIAL_BAUD_RATE must be > 0")
+        if self.serial_timeout_seconds <= 0:
+            raise ValueError("SERIAL_TIMEOUT_SECONDS must be > 0")
+        if self.serial_write_timeout_seconds <= 0:
+            raise ValueError("SERIAL_WRITE_TIMEOUT_SECONDS must be > 0")
+        if self.init_retries <= 0:
+            raise ValueError("GSM_INIT_RETRIES must be > 0")
+        if self.command_timeout_seconds <= 0:
+            raise ValueError("GSM_COMMAND_TIMEOUT_SECONDS must be > 0")
+        if self.reconnect_seconds <= 0:
+            raise ValueError("GSM_RECONNECT_SECONDS must be > 0")
+        if self.sms_storage and re.fullmatch(r"[A-Za-z0-9]{1,8}", self.sms_storage) is None:
+            raise ValueError("GSM_SMS_STORAGE contains invalid characters")
+        if re.fullmatch(r"\d+(?:,\d+){4}", self.cnmi) is None:
+            raise ValueError("GSM_CNMI must contain five comma-separated integers")
+        return self
+
+    @classmethod
+    def from_env(cls) -> "GsmConfig":
+        config = cls(
+            serial_port=os.getenv("SERIAL_PORT", ""),
+            baud_rate=_env_int("SERIAL_BAUD_RATE", 9600),
+            serial_timeout_seconds=_env_float("SERIAL_TIMEOUT_SECONDS", 0.5),
+            serial_write_timeout_seconds=_env_float("SERIAL_WRITE_TIMEOUT_SECONDS", 2.0),
+            init_retries=_env_int("GSM_INIT_RETRIES", 3),
+            command_timeout_seconds=_env_float("GSM_COMMAND_TIMEOUT_SECONDS", 5.0),
+            reconnect_seconds=_env_float("GSM_RECONNECT_SECONDS", 5.0),
+            sms_storage=os.getenv("GSM_SMS_STORAGE") or None,
+            cnmi=os.getenv("GSM_CNMI", "2,1,0,0,0"),
+        )
+        return config.validate()
 
 
 @dataclass(frozen=True)
