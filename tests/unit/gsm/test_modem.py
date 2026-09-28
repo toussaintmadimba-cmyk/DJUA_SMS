@@ -103,6 +103,38 @@ class ModemTests(unittest.TestCase):
         modem.initialize()
         self.assertIn('AT+CPMS="SM"', transport.commands)
 
+    def test_storage_near_capacity_logs_warning(self):
+        script = {
+            "AT+CPMS?": ['+CPMS: "SM",9,10,"SM",9,10,"SM",9,10', "OK"],
+        }
+        modem, _ = self.modem(script)
+        with self.assertLogs("djua_sms_gateway.gsm.modem", level="WARNING") as captured:
+            storage = modem.get_storage_status()
+        self.assertEqual((storage.used, storage.total), (9, 10))
+        self.assertTrue(any("SMS_STORAGE" in line for line in captured.output))
+
+    def test_reconnect_revalidates_modem_state(self):
+        base = ready_script()
+        script = {
+            command: [list(response), list(response)]
+            for command, response in base.items()
+        }
+        modem, transport = self.modem(script)
+        first = modem.initialize()
+        second = modem.reconnect()
+        self.assertTrue(first.sms_ready)
+        self.assertTrue(second.sms_ready)
+        self.assertEqual(transport.reconnect_calls, 1)
+        for command in (
+            "AT",
+            "AT+CPIN?",
+            "AT+CREG?",
+            "AT+CMGF=1",
+            "AT+CPMS?",
+            "AT+CNMI=2,1,0,0,0",
+        ):
+            self.assertEqual(transport.commands.count(command), 2)
+
     def test_read_sms_extracts_transport_metadata_and_body(self):
         script = {
             'AT+CPMS="SM"': ["+CPMS: 1,30,1,30,1,30", "OK"],
