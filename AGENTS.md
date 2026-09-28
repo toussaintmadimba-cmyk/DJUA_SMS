@@ -5,10 +5,14 @@
 DJUA_SMS est une passerelle légère :
 
 ```text
-SMS -> validation -> stockage -> MQTT
+SIM800L/SMS
+-> persistance
+-> validation D1
+-> outbox
+-> MQTT
 ```
 
-Elle n'est pas un backend, une IA, un moteur de maintenance prédictive ni un remplacement de l'API DJUA.
+Elle n'est pas le backend DJUA, une IA ou un moteur de maintenance prédictive.
 
 ## Protection absolue de DJUA
 
@@ -17,22 +21,17 @@ toussaintmadimba-cmyk/DJUA
 = READ ONLY
 ```
 
-Interdiction absolue de modifier, créer, supprimer, renommer ou déplacer un fichier dans DJUA, de créer une branche/commit/push/PR dans DJUA, de corriger le firmware, le backend, `TelemetryData`, `config.h` ou les topics.
+Interdiction de créer, modifier, supprimer, déplacer, committer, pousser ou ouvrir une PR contenant des modifications dans DJUA.
 
 DJUA peut uniquement être lu comme source de référence.
 
-Si une évolution paraît nécessaire :
-
-```text
-la documenter
-mais ne pas l'implémenter
-```
-
-Toute écriture du présent projet doit viser exclusivement :
+Toute écriture de ce projet vise :
 
 ```text
 toussaintmadimba-cmyk/DJUA_SMS
 ```
+
+Si une évolution du firmware DJUA semble nécessaire, la documenter mais ne pas l'implémenter.
 
 ## Règle de preuve
 
@@ -40,77 +39,94 @@ Toujours distinguer :
 
 - **CONFIRMÉ PAR DJUA**
 - **CHOIX D'ARCHITECTURE DJUA_SMS**
-- **HYPOTHÈSE**
 - **TESTÉ AUTOMATIQUEMENT**
 - **À VALIDER AVEC SIM800L RÉEL**
+- **À VALIDER AVEC SMS RÉEL**
 - **À VALIDER END-TO-END**
 
-Ne jamais présenter un test simulé comme une validation matérielle.
+Ne jamais appeler un mock ou un FakeSerial un test matériel.
 
-## Discipline
+## Non-perte SMS
 
-Avant une modification locale :
+Règle obligatoire :
 
-```bash
-git status
-git diff
+```text
+CMGR
+-> SmsIngestionService
+-> SQLite COMMIT durable
+-> CMGD=<index> autorisé
 ```
 
-Après modification :
+Si l'ingestion échoue :
 
-```bash
-git status
-git diff --check
-git diff
+```text
+CMGD INTERDIT
 ```
 
-Si l'intégration GitHub ne permet pas ces commandes littéralement, utiliser l'équivalent disponible et le signaler.
+Un SMS `INVALID` ou `DUPLICATE_RAW` peut être supprimé du modem si sa copie brute est déjà durable en SQLite.
 
-Règles :
+Ne jamais utiliser `AT+CMGD=1,4` dans le fonctionnement normal.
 
-- modifications petites et vérifiables ;
-- pas de refactor global hors périmètre ;
-- pas de dépendance sans justification ;
-- pas de secret réel dans Git ;
-- ne pas mélanger commandes AT, protocole, SQLite, normalisation et publication MQTT ;
-- ne pas inventer le comportement du SIM800L.
+## Séparation des responsabilités
+
+- `gsm/serial_transport.py` : octets / port série ;
+- `gsm/at_protocol.py` : commandes AT, terminaux, URC ;
+- `gsm/modem.py` : opérations SIM800L ;
+- `gsm/sms_receiver.py` : CMGR -> ingestion -> CMGD ;
+- `services/ingestion.py` : persistance / D1 / outbox ;
+- `mqtt/` : transport broker ;
+- `services/gateway.py` : orchestration.
+
+Ne pas déplacer la logique D1 dans les couches GSM.
 
 ## État stable actuel
 
 **TESTÉ AUTOMATIQUEMENT**
 
-Sont maintenant implémentés dans DJUA_SMS :
+Sont implémentés :
 
-- noyau protocolaire D1 ;
-- SQLite `sqlite3` ;
-- `inbound_sms` ;
-- `mqtt_outbox` ;
-- déduplication brute et logique SHA-256 ;
-- `SmsIngestionService` synchrone ;
-- reprise des outbox `PENDING` après redémarrage ;
-- API de marquage `PUBLISHED` ;
-- API d'enregistrement des échecs de publication ;
-- client MQTT Paho isolé derrière une interface ;
-- worker outbox MQTT ;
-- suivi QoS 1 / PUBACK par `mid` ;
-- retry/backoff et reprise après déconnexion.
+- D1 parser / validator / normalizer ;
+- SQLite ;
+- déduplication ;
+- outbox ;
+- MQTT QoS 1 / PUBACK / retry ;
+- pyserial ;
+- protocole AT ;
+- initialisation SIM800L ;
+- CMTI / CMGR / CMGL / CMGD ;
+- persistance avant suppression ;
+- startup recovery ;
+- reconnexion série ;
+- gateway orchestrator.
 
-La suite complète compte actuellement :
+Suite actuelle :
 
 ```text
-123 PASS
+177 PASS
 0 FAIL
 0 SKIP
 ```
 
-## Arrêt de phase MQTT
+## Matériel
+
+À ce stade :
+
+```text
+SIM800L RÉEL : NON VALIDÉ
+SMS RÉEL     : NON VALIDÉ
+```
+
+Ne pas inventer le résultat des scripts matériels.
+
+## Arrêt de phase
 
 Ne pas commencer automatiquement :
 
-- SIM800L ;
-- pyserial ;
-- commandes AT ;
-- daemon/service Windows ;
+- modification du firmware DJUA ;
+- émetteur SMS ESP32 ;
+- modification du protocole D1 ;
+- HMAC ;
+- service Windows ;
 - Docker.
 
-Attendre une autorisation explicite pour la phase suivante.
+Attendre une autorisation explicite.
