@@ -1,150 +1,183 @@
 # DJUA_SMS
 
-Passerelle **SMS -> MQTT** du projet DJUA.
-
-## Architecture cible
-
-```text
-BOÎTIER DJUA
-    |
-    v
-SMS
-    |
-    v
-DJUA_SMS
-    |
-    +--> persistance SQLite
-    +--> déduplication
-    +--> parsing / validation
-    +--> normalisation
-    +--> MQTT outbox persistante
-    |
-    v
-MQTT
-    |
-    v
-BACKEND DJUA
-```
-
-Le SMS est le transport cible du boîtier terrain. Il n'est pas conçu comme un fallback Wi-Fi.
+Passerelle **SMS -> SQLite -> MQTT** du projet DJUA.
 
 ## Règle absolue
 
-Le dépôt `toussaintmadimba-cmyk/DJUA` est **READ ONLY** pour ce projet.
+Le dépôt :
 
-Toutes les conceptions, documentations, simulations, tests et implémentations de la gateway restent dans :
+```text
+toussaintmadimba-cmyk/DJUA
+```
+
+reste **READ ONLY**.
+
+Toutes les implémentations de la gateway sont réalisées uniquement dans :
 
 ```text
 toussaintmadimba-cmyk/DJUA_SMS
 ```
 
+## Architecture
+
+```text
+SIM800L récepteur
+    |
+    v
+pyserial
+    |
+    v
+AT protocol
+    |
+    v
++CMTI / CMGR
+    |
+    v
+SmsReceiver
+    |
+    v
+SmsIngestionService
+    |
+    +--> SQLite inbound_sms
+    +--> déduplication
+    +--> parser / validator / normalizer D1
+    +--> mqtt_outbox PENDING
+    |
+    v
+MqttOutboxWorker
+    |
+    v
+MQTT QoS 1 / PUBACK
+    |
+    v
+backend DJUA
+```
+
+La règle de non-perte côté modem est :
+
+```text
+CMGR
+-> SQLite COMMIT durable
+-> seulement ensuite CMGD=<index>
+```
+
+CMGD n'attend pas MQTT.
+
 ## Documentation
 
-- [Règles du projet et garde-fous](AGENTS.md)
-- [Architecture complète](docs/architecture.md)
+- [Règles du projet](AGENTS.md)
+- [Architecture](docs/architecture.md)
 - [Protocole SMS D1](docs/sms_protocol.md)
-- [Contrat MQTT observé](docs/mqtt_contract.md)
+- [Transport GSM/SMS](docs/gsm_transport.md)
+- [Stockage SQLite](docs/storage.md)
 - [Fiabilité et reprise](docs/reliability.md)
-- [Stockage SQLite et outbox](docs/storage.md)
+- [Contrat MQTT](docs/mqtt_contract.md)
+- [Transport MQTT](docs/mqtt_transport.md)
 
-## État du projet
+## Composants implémentés
 
-Trois couches sont maintenant implémentées :
+1. **D1**
+   - parser ;
+   - validator ;
+   - normalizer.
 
-1. **noyau protocolaire D1**
-   - `SmsTelemetry`, `ValidationResult`, `DjuaMqttPayload` ;
-   - parser strict des 23 champs ;
-   - base36 et flags ;
-   - validation ;
-   - normalisation MQTT.
-
-2. **persistance fiable**
-   - SQLite via la bibliothèque standard `sqlite3` ;
-   - stockage du SMS brut avant traitement ;
+2. **Persistance**
+   - SQLite `sqlite3` ;
+   - `inbound_sms` ;
    - déduplication brute et logique ;
-   - conservation des SMS invalides ;
-   - outbox MQTT persistante ;
-   - reprise après redémarrage.
+   - `mqtt_outbox` persistante ;
+   - recovery.
 
-3. **transport MQTT**
+3. **MQTT**
    - `paho-mqtt==2.1.0` ;
-   - client gateway indépendant des Client ID ESP32 ;
-   - QoS 1 et suivi PUBACK par `mid` ;
+   - QoS 1 ;
    - mapping `mid -> outbox_id` ;
-   - retry exponentiel plafonné ;
-   - reprise des outbox `PENDING` après coupure/redémarrage ;
-   - `mark_outbox_published()` seulement après ACK correspondant.
+   - PUBACK ;
+   - retry/backoff ;
+   - reconnexion.
 
-Le pipeline simulé est :
+4. **GSM/SMS récepteur**
+   - `pyserial==3.5` ;
+   - transport série portable ;
+   - commandes AT ;
+   - CPIN / CREG / CSQ / CMGF / CPMS / CNMI ;
+   - `+CMTI` ;
+   - CMGR / CMGL / CMGD précis ;
+   - startup recovery ;
+   - reconnexion série ;
+   - suppression seulement après persistance durable.
 
-```text
-RawSmsInput
-    |
-    v
-SQLite COMMIT du brut
-    |
-    v
-parse D1
-    |
-    v
-validation
-    |
-    v
-normalisation
-    |
-    v
-transaction atomique :
-  inbound_sms -> QUEUED
-  + mqtt_outbox -> PENDING
-```
-
-Le publisher réel est implémenté. Les tests automatisés utilisent des doubles sans broker ; un script séparé permet un test manuel avec un broker réel.
-
-### Tests
-
-Commande :
-
-```bash
-PYTHONPATH=src:. python -m unittest discover -s tests -p 'test_*.py'
-```
-
-Résultat actuel :
-
-```text
-123 tests
-123 PASS
-0 FAIL
-0 SKIP
-```
-
-Les 96 tests précédents restent verts. 27 tests supplémentaires couvrent MQTT, PUBACK, deux publications en vol, déconnexion/reconnexion, retry/backoff et récupération après crash.
-
-## Hors périmètre actuel
-
-Toujours non implémentés :
-
-- SIM800L réel ;
-- pyserial ;
-- commandes AT ;
-- suppression réelle des SMS modem ;
-- daemon/service Windows ;
-- Docker ;
-- modification du firmware DJUA.
-
-### Installation MQTT
+## Installation
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-La configuration est fournie par variables d'environnement ; `.env.example` documente les noms attendus. Aucun secret réel n'est versionné.
+La configuration de référence est dans `.env.example`.
 
-Test manuel broker :
+Aucun port COM ni secret n'est codé en dur.
 
-```bash
-PYTHONPATH=src python scripts/mqtt_test.py
+## Tests
+
+Le dépôt possède un workflow GitHub Actions qui exécute :
+
+```text
+python -m compileall -q src tests scripts
+PYTHONPATH=src:. python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-Le script publie uniquement un message `DJUA_SMS_MQTT_CONNECTIVITY_TEST` sur un topic de diagnostic, jamais une fausse télémétrie terrain. Voir `docs/mqtt_transport.md`.
+État actuel :
 
-La phase suivante ne doit pas commencer sans autorisation explicite.
+```text
+TOTAL : 177
+PASS  : 177
+FAIL  : 0
+SKIP  : 0
+```
+
+Les 123 tests précédents restent verts et 54 tests supplémentaires couvrent GSM/SMS.
+
+## Diagnostics matériels
+
+Probe série :
+
+```bash
+PYTHONPATH=src python scripts/serial_probe.py --port <PORT> --baud 9600
+```
+
+Diagnostic modem :
+
+```bash
+PYTHONPATH=src python scripts/modem_test.py --port <PORT> --baud 9600
+```
+
+Réception SMS interactive et sûre :
+
+```bash
+PYTHONPATH=src python scripts/sms_receive_test.py --port <PORT> --baud 9600
+```
+
+Le dernier script ne supprime un SMS qu'après confirmation durable par SQLite.
+
+## Validation matérielle
+
+```text
+TEST MOCK / SÉRIE SIMULÉ : EFFECTUÉ
+TEST SIM800L RÉEL          : NON EFFECTUÉ
+TEST SMS RÉEL              : NON EFFECTUÉ
+```
+
+Les scripts sont prêts pour le poste physique, mais l'environnement GitHub/ChatGPT n'a pas accès à son port COM.
+
+## Hors périmètre après cette phase
+
+Ne pas commencer automatiquement :
+
+- modification du firmware `DJUA` ;
+- émetteur SMS ESP32 ;
+- modification D1 ;
+- HMAC ;
+- service Windows ;
+- Docker.
+
+Attendre une autorisation explicite pour l'étape suivante.
