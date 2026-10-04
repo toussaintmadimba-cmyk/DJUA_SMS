@@ -12,7 +12,7 @@ ne dépend plus de la disponibilité d'Internet ou MQTT
 pour être conservé
 ```
 
-La persistance, la reprise et la chaîne GSM simulée sont maintenant **TESTÉES AUTOMATIQUEMENT**. Le SIM800L physique et le SMS réel restent non validés.
+La persistance, la reprise et la chaîne GSM simulée sont maintenant **TESTÉES AUTOMATIQUEMENT**. Le SIM868 physique et le SMS réel restent non validés.
 
 ## 2. Ordre de non-perte
 
@@ -25,7 +25,7 @@ lecture future depuis modem
 -> seulement ensuite suppression modem autorisable
 ```
 
-La partie `store_raw_sms() -> COMMIT -> autorisation CMGD` est implémentée et testée avec modem simulé. L'exécution de CMGD sur un SIM800L physique reste **À VALIDER AVEC SIM800L RÉEL**.
+La partie `store_raw_sms() -> COMMIT -> autorisation CMGD` est implémentée et testée avec modem simulé. L'exécution de CMGD sur un SIM868 physique reste **À VALIDER AVEC SIM800L RÉEL**.
 
 ## 3. Déduplication brute
 
@@ -412,10 +412,37 @@ SQLite durable
 État actuel :
 
 ```text
-177 tests
-177 PASS
+208 tests
+208 PASS
 0 FAIL
 0 SKIP
 ```
 
 Le CI installe `pyserial==3.5` et `paho-mqtt==2.1.0`, compile les sources puis exécute toute la suite.
+
+## 25. Fiabilité D2
+
+D2 conserve la frontière `CMGR -> SQLite durable -> CMGD précis`.
+
+Un rejet HMAC, un sender/device incohérent ou un conflit de message_id reste archivé sans outbox backend. Après persistance locale durable, le SMS peut être supprimé précisément du modem.
+
+Déduplication D2 :
+
+```text
+même message_id + même signed_part
+-> DUPLICATE_LOGICAL
+-> pas de seconde outbox
+
+même message_id + signed_part différent
+-> MESSAGE_ID_CONFLICT
+-> conflit archivé
+-> pas de seconde outbox
+```
+
+Le `d2_content_hash` n'est utilisé comme identité fiable qu'après validation de sécurité ; un message non authentifié ne peut donc pas réserver à lui seul un message_id.
+
+La migration SQLite v1 -> v2 est testée avec une ligne D1 et une outbox préexistantes, qui restent intactes.
+
+`gateway_received_at` est conservé dans le JSON durable de l'outbox. Les retries MQTT republient exactement le même payload.
+
+Le récepteur matériel confirmé est SIM868. La réception D2T/D2E, SQLite, CMGD et publication MQTT sont testés automatiquement avec des doubles modem/MQTT, pas avec un nouveau vrai SMS D2.

@@ -778,3 +778,43 @@ Les comportements essentiels sont couverts par les tests automatisés existants,
 - solaire valide à `0.0` ;
 - AC invalide ;
 - absence des champs de transport D1 dans le payload backend.
+
+---
+
+# Contrat D2 ajouté
+
+Le contrat précédent décrit le comportement historique D1. D2 l'étend sans modifier D1.
+
+## D2T
+
+Topic : `djua/test/<device_id>/telemetry`.
+
+Le payload D2T conserve `kit_id`, `timestamp_ms` (uptime historique), `timestamp/timezone` optionnels, `interval_seconds`, `latitude/longitude`, `battery`, `solar` et `ac_load`, et ajoute :
+
+- `protocol: D2T` ;
+- `message_id` ;
+- `sequence` ;
+- `uptime_ms` ;
+- `gateway_received_at` ;
+- `validity` ;
+- `auth_status`.
+
+Pour D2, une donnée indisponible est `null` ; une vraie mesure zéro reste numérique zéro. Les énergies solaire et AC sont nettes et signées. La complétude énergétique est indépendante de la validité de la dernière mesure.
+
+## D2E
+
+Topic : `djua/test/<device_id>/geofence/events`.
+
+`GX` devient `event=GEOFENCE_EXIT`, `state=OUTSIDE`. `GE` devient `event=GEOFENCE_ENTER`, `state=INSIDE`.
+
+Le payload contient `protocol`, `message_id`, `sequence`, `kit_id`, `uptime_ms`, `gateway_received_at`, timestamp/timezone si RTC valide, event/state, `position_usable`, latitude/longitude nullable, `distance_m` nullable, `validity` et `auth_status`.
+
+`distance_m` est la distance géodésique entière au centre de la geofence.
+
+## Idempotence et statut
+
+`message_id = D2:<device_id>:<sequence_base36>` doit servir de clé d'idempotence backend. QoS 1 reste at-least-once.
+
+Valeurs auth_status : `VERIFIED` et `NOT_VERIFIED`. `NOT_VERIFIED` n'est publiable qu'en mode développement.
+
+**La compatibilité du backend réel avec ce JSON D2 n'est pas validée.** Les tests actuels couvrent le payload et MQTT avec doubles logiciels.

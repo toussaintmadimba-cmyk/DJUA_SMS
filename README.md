@@ -21,7 +21,7 @@ toussaintmadimba-cmyk/DJUA_SMS
 ## Architecture
 
 ```text
-SIM800L récepteur
+SIM868 récepteur (pilote historique SIM800)
     |
     v
 pyserial
@@ -40,7 +40,9 @@ SmsIngestionService
     |
     +--> SQLite inbound_sms
     +--> déduplication
-    +--> parser / validator / normalizer D1
+    +--> dispatch D1 / D2T / D2E
+    +--> parsing / validation / sécurité
+    +--> normalisation backend
     +--> mqtt_outbox PENDING
     |
     v
@@ -68,6 +70,8 @@ CMGD n'attend pas MQTT.
 - [Règles du projet](AGENTS.md)
 - [Architecture](docs/architecture.md)
 - [Protocole SMS D1](docs/sms_protocol.md)
+- [Protocole SMS D2](docs/sms_protocol_v2.md)
+- [Contrat de données backend](docs/backend_data_contract.md)
 - [Transport GSM/SMS](docs/gsm_transport.md)
 - [Stockage SQLite](docs/storage.md)
 - [Fiabilité et reprise](docs/reliability.md)
@@ -129,13 +133,13 @@ PYTHONPATH=src:. python -m unittest discover -s tests -p 'test_*.py'
 État actuel :
 
 ```text
-TOTAL : 177
-PASS  : 177
+TOTAL : 208
+PASS  : 208
 FAIL  : 0
 SKIP  : 0
 ```
 
-Les 123 tests précédents restent verts et 54 tests supplémentaires couvrent GSM/SMS.
+Les tests historiques D1/GSM/MQTT restent verts ; la suite couvre désormais aussi D2T/D2E, HMAC, GSM-7, migration SQLite, déduplication/conflits et flux GSM/MQTT simulés.
 
 ## Diagnostics matériels
 
@@ -162,9 +166,11 @@ Le dernier script ne supprime un SMS qu'après confirmation durable par SQLite.
 ## Validation matérielle
 
 ```text
-TEST MOCK / SÉRIE SIMULÉ : EFFECTUÉ
-TEST SIM800L RÉEL          : NON EFFECTUÉ
-TEST SMS RÉEL              : NON EFFECTUÉ
+TEST MOCK / SÉRIE SIMULÉ D2 : EFFECTUÉ
+RÉCEPTEUR MATÉRIEL            : SIM868 CONFIRMÉ PAR LE PROJET
+AT/SMS PILOTE HISTORIQUE      : A DÉJÀ FONCTIONNÉ AVEC SIM868
+VRAI SMS D2                   : NON TESTÉ DANS CETTE PHASE
+BACKEND RÉEL D2               : NON VALIDÉ
 ```
 
 Les scripts sont prêts pour le poste physique, mais l'environnement GitHub/ChatGPT n'a pas accès à son port COM.
@@ -176,8 +182,25 @@ Ne pas commencer automatiquement :
 - modification du firmware `DJUA` ;
 - émetteur SMS ESP32 ;
 - modification D1 ;
-- HMAC ;
 - service Windows ;
 - Docker.
 
 Attendre une autorisation explicite pour l'étape suivante.
+
+## D2T / D2E
+
+D2 étend la gateway existante ; il ne crée pas une deuxième chaîne de réception.
+
+```text
+D1,  -> comportement historique
+D2T, -> télémétrie périodique
+D2E, -> événement urgent GX/GE
+```
+
+D2T contient exactement 22 champs et son maximum authentifié est 160 septets GSM-7. D2E contient 11 champs et son maximum est 97 septets.
+
+Le `message_id` est dérivé côté gateway sous la forme `D2:<device_id>:<sequence_base36>`. Un même message_id avec le même contenu signé est un replay ; avec un contenu signé différent, il devient `MESSAGE_ID_CONFLICT` et aucune seconde outbox n'est créée.
+
+La configuration D2 utilise `D2_AUTH_MODE`, `D2_HMAC_KEYS_JSON` et `D2_SENDER_BINDINGS_JSON`. Aucun secret réel ne doit être committé.
+
+Le script `sms_receive_test.py` charge cette configuration depuis l'environnement.

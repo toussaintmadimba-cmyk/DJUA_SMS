@@ -13,7 +13,9 @@ lecture SMS
       ↓
 persistance durable SQLite
       ↓
-parsing / validation D1
+dispatch D1 / D2T / D2E
+      ↓
+parsing / validation / sécurité
       ↓
 normalisation
       ↓
@@ -31,6 +33,20 @@ publication MQTT
 - un système d'analyse énergétique métier.
 
 Le projet doit rester focalisé sur la réception fiable des SMS, leur persistance, leur transformation selon le protocole D1 et leur transmission MQTT.
+
+
+## SOURCE DE VÉRITÉ D2
+
+Le wire protocol D2 est défini par :
+
+```text
+docs/sms_protocol_v2.md
+tests/vectors/d2_conformance.json
+```
+
+D1 reste historique. Toute correction du contrat D2 doit aligner explicitement spécification, vecteurs, code et tests.
+
+Le récepteur réel est un SIM868 ; préserver le pilote historique SIM800 compatible au lieu de le réécrire uniquement pour son nom.
 
 ---
 
@@ -206,8 +222,9 @@ services/ingestion.py
 Responsable de :
 
 - persistance ;
-- parsing D1 ;
-- validation ;
+- dispatch D1/D2T/D2E ;
+- parsing/validation D1 ;
+- parsing/validation/sécurité D2 ;
 - normalisation ;
 - déduplication ;
 - création de l'outbox.
@@ -266,7 +283,7 @@ orchestration
 État de référence :
 
 ```text
-177 PASS
+208 PASS (CI après intégration D2, avant documentation finale)
 0 FAIL
 0 SKIP
 ```
@@ -282,8 +299,9 @@ Après toute modification, utiliser le résultat réellement obtenu par les test
 État de référence :
 
 ```text
-SIM800L RÉEL : NON VALIDÉ
-SMS RÉEL     : NON VALIDÉ
+SIM868 RÉCEPTEUR : MATÉRIEL CONFIRMÉ PAR LE PROJET
+AT/SMS PILOTE HISTORIQUE : A DÉJÀ FONCTIONNÉ AVEC SIM868
+D2 SMS RÉEL : NON VALIDÉ DANS CETTE PHASE
 ```
 
 Ne jamais inventer un résultat matériel.
@@ -318,7 +336,6 @@ Ne pas commencer automatiquement :
 - modification du firmware `DJUA` ;
 - développement de l'émetteur SMS ESP32 ;
 - modification du protocole D1 ;
-- HMAC ;
 - service Windows ;
 - Docker ;
 - changement majeur d'architecture ;

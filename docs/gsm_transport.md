@@ -860,3 +860,15 @@ TEST SMS RÉEL              : NON EFFECTUÉ
 L'environnement GitHub/ChatGPT ne possède pas le port COM physique du poste récepteur.
 
 Aucune validation matérielle n'est donc revendiquée.
+
+---
+
+## SIM868 — matériel récepteur confirmé
+
+Le poste récepteur physique utilise un **SIM868**. Le pilote actuel conserve des noms historiques SIM800 (`Sim800Modem`) parce que la communication AT/SMS existante a déjà fonctionné avec ce SIM868. D2 ne justifie pas une réécriture du pilote.
+
+D2 utilise exactement le même flux modem : `+CMTI -> CMGR -> RawSmsInput -> ingestion -> SQLite durable -> CMGD précis`.
+
+Le script `scripts/sms_receive_test.py` charge désormais `D2SecurityConfig.from_env()` pour permettre les essais D2 avec clés et bindings fournis uniquement par l'environnement.
+
+Les tests automatisés D2 utilisent un modem simulé ; ils ne constituent ni un nouveau test matériel SIM868 ni un test de vrai SMS D2.

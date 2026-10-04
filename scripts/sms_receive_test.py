@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 
-from djua_sms_gateway.config import GsmConfig
+from djua_sms_gateway.config import D2SecurityConfig, GsmConfig
 from djua_sms_gateway.gsm.at_protocol import AtProtocol
 from djua_sms_gateway.gsm.modem import Sim800Modem
 from djua_sms_gateway.gsm.serial_transport import PySerialTransport
@@ -64,7 +64,11 @@ def main() -> int:
                 continue
 
             repository = SmsRepository(Database(args.database))
-            receiver = SmsReceiver(modem, SmsIngestionService(repository))
+            security = D2SecurityConfig.from_env()
+            receiver = SmsReceiver(
+                modem,
+                SmsIngestionService(repository, d2_security=security),
+            )
             result = receiver.process_sms(sms)
             print(
                 f"result={result.disposition.value} "

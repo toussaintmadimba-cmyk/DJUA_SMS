@@ -17,7 +17,7 @@ SIM800L émetteur
 SMS / réseau GSM
     |
     v
-SIM800L récepteur
+SIM868 récepteur
     |
     v
 PySerialTransport
@@ -35,7 +35,8 @@ SmsReceiver
 SmsIngestionService
     |
     +--> inbound_sms
-    +--> parser / validator D1
+    +--> dispatch D1 / D2T / D2E
+    +--> parsing / validation / sécurité
     +--> déduplication
     +--> normalizer
     +--> mqtt_outbox PENDING
@@ -272,9 +273,7 @@ DJUA-KIN-000002
 DJUA-KIN-000003
 ```
 
-Le numéro expéditeur GSM reste distinct du `device_id` D1.
-
-La liaison sender <-> device_id appartient à une future phase sécurité.
+Le numéro expéditeur GSM reste distinct du `device_id`. Pour D2 en production, la liaison E.164 sender <-> device_id est configurée et vérifiée après le HMAC.
 
 ## 12. État de validation
 
@@ -283,7 +282,7 @@ D1                    : TESTÉ AUTOMATIQUEMENT
 SQLite                : TESTÉ AUTOMATIQUEMENT
 MQTT logique          : TESTÉ AUTOMATIQUEMENT
 GSM/AT simulé         : TESTÉ AUTOMATIQUEMENT
-SIM800L réel          : NON TESTÉ
+SIM868 récepteur      : MATÉRIEL CONFIRMÉ PAR LE PROJET
 SMS réel              : NON TESTÉ
 backend end-to-end    : NON TESTÉ DANS CETTE PHASE
 ```
@@ -291,7 +290,7 @@ backend end-to-end    : NON TESTÉ DANS CETTE PHASE
 Suite actuelle :
 
 ```text
-177 PASS
+208 PASS
 0 FAIL
 0 SKIP
 ```
@@ -303,6 +302,25 @@ Cette phase n'implémente pas :
 - émetteur SMS ESP32 ;
 - modification du firmware DJUA ;
 - modification D1 ;
-- HMAC ;
 - service Windows ;
 - Docker.
+
+## 14. Extension D2
+
+D2 réutilise `SmsReceiver`, `inbound_sms`, `mqtt_outbox`, le worker MQTT et le publisher existants.
+
+```text
+D1  -> parser/validator/normalizer historique
+D2T -> codec D2 -> HMAC/binding -> telemetry
+D2E -> codec D2 -> HMAC/binding -> geofence/events
+```
+
+Le schéma SQLite v2 ajoute `message_id`, `d2_content_hash`, `auth_status`, `security_status` et `conflict_with_sms_id` par migration additive.
+
+D2T publie sur `djua/test/<device_id>/telemetry`. D2E publie sur `djua/test/<device_id>/geofence/events`.
+
+`gateway_received_at` est l'heure UTC de la première ingestion locale durable et reste figée dans le payload de l'outbox pendant les retries.
+
+Le matériel récepteur est un SIM868. Les noms `Sim800Modem` restent historiques et sont conservés parce que la chaîne AT/SMS existante a déjà fonctionné avec ce SIM868.
+
+Les tests D2 GSM utilisent un modem simulé ; aucun nouveau test de vrai SMS D2 ou d'end-to-end backend réel n'est revendiqué.
