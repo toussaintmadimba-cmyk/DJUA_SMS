@@ -1,0 +1,502 @@
+{
+  "schema": "djua-d2-conformance-v1",
+  "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+  "notes": [
+    "Public test key only; never use in production.",
+    "gsm7_septets is the GSM 03.38 septet count; every character in a valid D2 SMS costs one septet."
+  ],
+  "vectors": [
+    {
+      "name": "d2t_min_authenticated",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "signed_part": "D2T,A,1,-,0,A,-,-,-,-,-,-,-,-,-,-,-,-,-,-,00",
+      "expected_auth": "5123rrWouLw",
+      "sms": "D2T,A,1,-,0,A,-,-,-,-,-,-,-,-,-,-,-,-,-,-,00,5123rrWouLw",
+      "gsm7_septets": 56,
+      "expected_decoded": {
+        "protocol": "D2T",
+        "device_id": "A",
+        "sequence": 1,
+        "rtc_epoch_s": null,
+        "uptime_ms": 0,
+        "interval_seconds": 10,
+        "latitude": null,
+        "longitude": null,
+        "battery": {
+          "voltage_v": null,
+          "current_a": null,
+          "power_w": null
+        },
+        "solar": {
+          "voltage_v": null,
+          "current_a": null,
+          "power_w": null,
+          "energy_interval_wh": null
+        },
+        "ac_load": {
+          "voltage_v": null,
+          "current_a": null,
+          "active_power_w": null,
+          "apparent_power_va": null,
+          "energy_interval_wh": null
+        },
+        "flags": 0
+      },
+      "backend_topic": "djua/test/A/telemetry",
+      "gateway_received_at": "2026-09-27T15:30:05.123000+00:00",
+      "expected_backend_payload": {
+        "protocol": "D2T",
+        "message_id": "D2:A:1",
+        "sequence": 1,
+        "kit_id": "A",
+        "uptime_ms": 0,
+        "timestamp_ms": 0,
+        "gateway_received_at": "2026-09-27T15:30:05.123000+00:00",
+        "interval_seconds": 10,
+        "latitude": null,
+        "longitude": null,
+        "battery": {
+          "voltage_v": null,
+          "current_a": null,
+          "power_w": null
+        },
+        "solar": {
+          "voltage_v": null,
+          "current_a": null,
+          "power_w": null,
+          "energy_interval_wh": null
+        },
+        "ac_load": {
+          "voltage_v": null,
+          "current_a": null,
+          "active_power_w": null,
+          "apparent_power_va": null,
+          "energy_interval_wh": null
+        },
+        "validity": {
+          "rtc": false,
+          "gps": false,
+          "battery": false,
+          "solar": false,
+          "solar_energy": false,
+          "ac": false,
+          "ac_energy": false
+        },
+        "auth_status": "VERIFIED"
+      }
+    },
+    {
+      "name": "d2t_typical_authenticated",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "signed_part": "D2T,DJUA-KIN-000001,9IX,TM14E0,21I3V9,1E0,-99Q6,WU9O,9KG,DW,1Q,E1K,Y6,68,V4,1RX,3H,1VX,27W,9FL,3J",
+      "expected_auth": "e0kwQvzx35g",
+      "sms": "D2T,DJUA-KIN-000001,9IX,TM14E0,21I3V9,1E0,-99Q6,WU9O,9KG,DW,1Q,E1K,Y6,68,V4,1RX,3H,1VX,27W,9FL,3J,e0kwQvzx35g",
+      "gsm7_septets": 109,
+      "expected_decoded": {
+        "protocol": "D2T",
+        "device_id": "DJUA-KIN-000001",
+        "sequence": 12345,
+        "rtc_epoch_s": 1790523000,
+        "uptime_ms": 123456789,
+        "interval_seconds": 1800,
+        "latitude": -4.3251,
+        "longitude": 15.3222,
+        "battery": {
+          "voltage_v": 12.4,
+          "current_a": 0.5,
+          "power_w": 6.2
+        },
+        "solar": {
+          "voltage_v": 18.2,
+          "current_a": 1.23,
+          "power_w": 22.4,
+          "energy_interval_wh": 11.2
+        },
+        "ac_load": {
+          "voltage_v": 230.1,
+          "current_a": 1.25,
+          "active_power_w": 244.5,
+          "apparent_power_va": 287.6,
+          "energy_interval_wh": 122.25
+        },
+        "flags": 127
+      },
+      "backend_topic": "djua/test/DJUA-KIN-000001/telemetry",
+      "gateway_received_at": "2026-09-27T15:30:05.123000+00:00",
+      "expected_backend_payload": {
+        "protocol": "D2T",
+        "message_id": "D2:DJUA-KIN-000001:9IX",
+        "sequence": 12345,
+        "kit_id": "DJUA-KIN-000001",
+        "uptime_ms": 123456789,
+        "timestamp_ms": 123456789,
+        "timestamp": "2026-09-27T16:30:00+01:00",
+        "timezone": "GMT+1",
+        "gateway_received_at": "2026-09-27T15:30:05.123000+00:00",
+        "interval_seconds": 1800,
+        "latitude": -4.3251,
+        "longitude": 15.3222,
+        "battery": {
+          "voltage_v": 12.4,
+          "current_a": 0.5,
+          "power_w": 6.2
+        },
+        "solar": {
+          "voltage_v": 18.2,
+          "current_a": 1.23,
+          "power_w": 22.4,
+          "energy_interval_wh": 11.2
+        },
+        "ac_load": {
+          "voltage_v": 230.1,
+          "current_a": 1.25,
+          "active_power_w": 244.5,
+          "apparent_power_va": 287.6,
+          "energy_interval_wh": 122.25
+        },
+        "validity": {
+          "rtc": true,
+          "gps": true,
+          "battery": true,
+          "solar": true,
+          "solar_energy": true,
+          "ac": true,
+          "ac_energy": true
+        },
+        "auth_status": "VERIFIED"
+      }
+    },
+    {
+      "name": "d2t_max_authenticated",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "signed_part": "D2T,DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD,1Z141Z3,1VUHMNZ,1Z141Z3,1UO0,-5CWG0,-APSW0,OOW,-4ABK,-1DDS,255S,-255S,-255S,-EAEIO,334,2BC,-2KLC,2KLC,-H5A80,3J",
+      "expected_auth": "B087JbAshro",
+      "sms": "D2T,DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD,1Z141Z3,1VUHMNZ,1Z141Z3,1UO0,-5CWG0,-APSW0,OOW,-4ABK,-1DDS,255S,-255S,-255S,-EAEIO,334,2BC,-2KLC,2KLC,-H5A80,3J,B087JbAshro",
+      "gsm7_septets": 160,
+      "expected_decoded": {
+        "protocol": "D2T",
+        "device_id": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+        "sequence": 4294967295,
+        "rtc_epoch_s": 4102444799,
+        "uptime_ms": 4294967295,
+        "interval_seconds": 86400,
+        "latitude": -90,
+        "longitude": -180,
+        "battery": {
+          "voltage_v": 32,
+          "current_a": -200,
+          "power_w": -6400
+        },
+        "solar": {
+          "voltage_v": 100,
+          "current_a": -100,
+          "power_w": -10000,
+          "energy_interval_wh": -240000
+        },
+        "ac_load": {
+          "voltage_v": 400,
+          "current_a": 30,
+          "active_power_w": -12000,
+          "apparent_power_va": 12000,
+          "energy_interval_wh": -288000
+        },
+        "flags": 127
+      },
+      "backend_topic": "djua/test/DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD/telemetry",
+      "gateway_received_at": "2026-09-27T15:30:05.123000+00:00",
+      "expected_backend_payload": {
+        "protocol": "D2T",
+        "message_id": "D2:DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD:1Z141Z3",
+        "sequence": 4294967295,
+        "kit_id": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+        "uptime_ms": 4294967295,
+        "timestamp_ms": 4294967295,
+        "timestamp": "2100-01-01T00:59:59+01:00",
+        "timezone": "GMT+1",
+        "gateway_received_at": "2026-09-27T15:30:05.123000+00:00",
+        "interval_seconds": 86400,
+        "latitude": -90,
+        "longitude": -180,
+        "battery": {
+          "voltage_v": 32,
+          "current_a": -200,
+          "power_w": -6400
+        },
+        "solar": {
+          "voltage_v": 100,
+          "current_a": -100,
+          "power_w": -10000,
+          "energy_interval_wh": -240000
+        },
+        "ac_load": {
+          "voltage_v": 400,
+          "current_a": 30,
+          "active_power_w": -12000,
+          "apparent_power_va": 12000,
+          "energy_interval_wh": -288000
+        },
+        "validity": {
+          "rtc": true,
+          "gps": true,
+          "battery": true,
+          "solar": true,
+          "solar_energy": true,
+          "ac": true,
+          "ac_energy": true
+        },
+        "auth_status": "VERIFIED"
+      }
+    },
+    {
+      "name": "d2e_gx_authenticated",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "signed_part": "D2E,DJUA-KIN-000001,9IY,TM14E0,21I6CG,GX,-99Q6,WU9O,2N,07",
+      "expected_auth": "G4ZfNcAaXGY",
+      "sms": "D2E,DJUA-KIN-000001,9IY,TM14E0,21I6CG,GX,-99Q6,WU9O,2N,07,G4ZfNcAaXGY",
+      "gsm7_septets": 69,
+      "expected_decoded": {
+        "protocol": "D2E",
+        "device_id": "DJUA-KIN-000001",
+        "sequence": 12346,
+        "rtc_epoch_s": 1790523000,
+        "uptime_ms": 123460000,
+        "event_code": "GX",
+        "latitude": -4.3251,
+        "longitude": 15.3222,
+        "distance_m": 95,
+        "flags": 7
+      },
+      "backend_topic": "djua/test/DJUA-KIN-000001/geofence/events",
+      "gateway_received_at": "2026-09-27T15:30:07.000000+00:00",
+      "expected_backend_payload": {
+        "protocol": "D2E",
+        "message_id": "D2:DJUA-KIN-000001:9IY",
+        "sequence": 12346,
+        "kit_id": "DJUA-KIN-000001",
+        "uptime_ms": 123460000,
+        "timestamp": "2026-09-27T16:30:00+01:00",
+        "timezone": "GMT+1",
+        "gateway_received_at": "2026-09-27T15:30:07.000000+00:00",
+        "event": "GEOFENCE_EXIT",
+        "state": "OUTSIDE",
+        "position_usable": true,
+        "latitude": -4.3251,
+        "longitude": 15.3222,
+        "distance_m": 95,
+        "validity": {
+          "rtc": true,
+          "gps": true,
+          "distance": true
+        },
+        "auth_status": "VERIFIED"
+      }
+    },
+    {
+      "name": "d2e_ge_authenticated",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "signed_part": "D2E,DJUA-KIN-000001,9IZ,TM14FO,21JGN4,GE,-99PW,WU94,5,07",
+      "expected_auth": "veO767hIj34",
+      "sms": "D2E,DJUA-KIN-000001,9IZ,TM14FO,21JGN4,GE,-99PW,WU94,5,07,veO767hIj34",
+      "gsm7_septets": 68,
+      "expected_decoded": {
+        "protocol": "D2E",
+        "device_id": "DJUA-KIN-000001",
+        "sequence": 12347,
+        "rtc_epoch_s": 1790523060,
+        "uptime_ms": 123520000,
+        "event_code": "GE",
+        "latitude": -4.325,
+        "longitude": 15.322,
+        "distance_m": 5,
+        "flags": 7
+      },
+      "backend_topic": "djua/test/DJUA-KIN-000001/geofence/events",
+      "gateway_received_at": "2026-09-27T15:30:07.000000+00:00",
+      "expected_backend_payload": {
+        "protocol": "D2E",
+        "message_id": "D2:DJUA-KIN-000001:9IZ",
+        "sequence": 12347,
+        "kit_id": "DJUA-KIN-000001",
+        "uptime_ms": 123520000,
+        "timestamp": "2026-09-27T16:31:00+01:00",
+        "timezone": "GMT+1",
+        "gateway_received_at": "2026-09-27T15:30:07.000000+00:00",
+        "event": "GEOFENCE_ENTER",
+        "state": "INSIDE",
+        "position_usable": true,
+        "latitude": -4.325,
+        "longitude": 15.322,
+        "distance_m": 5,
+        "validity": {
+          "rtc": true,
+          "gps": true,
+          "distance": true
+        },
+        "auth_status": "VERIFIED"
+      }
+    },
+    {
+      "name": "d2e_max_authenticated",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "signed_part": "D2E,DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD,1Z141Z3,1VUHMNZ,1Z141Z3,GX,-5CWG0,-APSW0,LFLS,07",
+      "expected_auth": "XqjsuhOjud8",
+      "sms": "D2E,DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD,1Z141Z3,1VUHMNZ,1Z141Z3,GX,-5CWG0,-APSW0,LFLS,07,XqjsuhOjud8",
+      "gsm7_septets": 97,
+      "expected_decoded": {
+        "protocol": "D2E",
+        "device_id": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+        "sequence": 4294967295,
+        "rtc_epoch_s": 4102444799,
+        "uptime_ms": 4294967295,
+        "event_code": "GX",
+        "latitude": -90,
+        "longitude": -180,
+        "distance_m": 1000000,
+        "flags": 7
+      },
+      "backend_topic": "djua/test/DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD/geofence/events",
+      "gateway_received_at": "2026-09-27T15:30:07.000000+00:00",
+      "expected_backend_payload": {
+        "protocol": "D2E",
+        "message_id": "D2:DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD:1Z141Z3",
+        "sequence": 4294967295,
+        "kit_id": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+        "uptime_ms": 4294967295,
+        "timestamp": "2100-01-01T00:59:59+01:00",
+        "timezone": "GMT+1",
+        "gateway_received_at": "2026-09-27T15:30:07.000000+00:00",
+        "event": "GEOFENCE_EXIT",
+        "state": "OUTSIDE",
+        "position_usable": true,
+        "latitude": -90,
+        "longitude": -180,
+        "distance_m": 1000000,
+        "validity": {
+          "rtc": true,
+          "gps": true,
+          "distance": true
+        },
+        "auth_status": "VERIFIED"
+      }
+    },
+    {
+      "name": "d2e_dev_auth_absent",
+      "mode": "development",
+      "sender": "+243810000001",
+      "signed_part": "D2E,DJUA-KIN-000001,A,-,0,GX,-,-,-,00",
+      "expected_auth": "-",
+      "sms": "D2E,DJUA-KIN-000001,A,-,0,GX,-,-,-,00,-",
+      "gsm7_septets": 44,
+      "expected_decoded": {
+        "protocol": "D2E",
+        "device_id": "DJUA-KIN-000001",
+        "sequence": 10,
+        "rtc_epoch_s": null,
+        "uptime_ms": 0,
+        "event_code": "GX",
+        "latitude": null,
+        "longitude": null,
+        "distance_m": null,
+        "flags": 0
+      },
+      "backend_topic": "djua/test/DJUA-KIN-000001/geofence/events",
+      "gateway_received_at": "2026-09-27T15:30:07.000000+00:00",
+      "expected_backend_payload": {
+        "protocol": "D2E",
+        "message_id": "D2:DJUA-KIN-000001:A",
+        "sequence": 10,
+        "kit_id": "DJUA-KIN-000001",
+        "uptime_ms": 0,
+        "gateway_received_at": "2026-09-27T15:30:07.000000+00:00",
+        "event": "GEOFENCE_EXIT",
+        "state": "OUTSIDE",
+        "position_usable": false,
+        "latitude": null,
+        "longitude": null,
+        "distance_m": null,
+        "validity": {
+          "rtc": false,
+          "gps": false,
+          "distance": false
+        },
+        "auth_status": "NOT_VERIFIED"
+      }
+    },
+    {
+      "name": "d2t_bad_hmac",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "sms": "D2T,DJUA-KIN-000001,9IX,TM14E0,21I3V9,1E0,-99Q6,WU9O,9KG,DW,1Q,E1K,Y6,68,V4,1RX,3H,1VX,27W,9FL,3J,e0kwQvzx35A",
+      "gsm7_septets": 109,
+      "expected_error": "AUTH_INVALID"
+    },
+    {
+      "name": "d2t_161_septets",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "sms": "D2T,DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD,1Z141Z3,1VUHMNZ,1Z141Z3,1UO0,-5CWG0,-APSW0,OOW,-4ABK,-1DDS,255S,-255S,-255S,-EAEIO,334,2BC,-2KLC,2KLC,-H5A80,3J,g7B9ktQgmyE",
+      "gsm7_septets": 161,
+      "expected_error": "SMS_TOO_LONG"
+    },
+    {
+      "name": "d2t_non_gsm7",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "sms": "D2T,DJUA-KIN-00000É,9IX,TM14E0,21I3V9,1E0,-99Q6,WU9O,9KG,DW,1Q,E1K,Y6,68,V4,1RX,3H,1VX,27W,9FL,3J,e0kwQvzx35g",
+      "gsm7_septets": null,
+      "expected_error": "NON_GSM7"
+    },
+    {
+      "name": "d2t_noncanonical_base36",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "sms": "D2T,DJUA-KIN-000001,9IX,TM14E0,21I3V9,1E0,-99Q6,WU9O,9KG,DW,1Q,E1K,Y6,68,0V4,1RX,3H,1VX,27W,9FL,3J,oIEAoDoVvR0",
+      "gsm7_septets": 110,
+      "expected_error": "NON_CANONICAL_BASE36"
+    },
+    {
+      "name": "d2t_flags_presence_mismatch",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "sms": "D2T,DJUA-KIN-000001,9IX,TM14E0,21I3V9,1E0,-99Q6,WU9O,9KG,DW,1Q,E1K,Y6,68,V4,1RX,3H,1VX,27W,9FL,2F,jyjlc-HZpI0",
+      "gsm7_septets": 109,
+      "expected_error": "FLAG_VALUE_MISMATCH"
+    },
+    {
+      "name": "d2e_prod_auth_absent",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "sms": "D2E,DJUA-KIN-000001,A,-,0,GX,-,-,-,00,-",
+      "gsm7_septets": 44,
+      "expected_error": "AUTH_REQUIRED"
+    },
+    {
+      "name": "d2e_sender_mismatch",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243899999999",
+      "allowed_sender": "+243810000001",
+      "sms": "D2E,DJUA-KIN-000001,9IY,TM14E0,21I6CG,GX,-99Q6,WU9O,2N,07,G4ZfNcAaXGY",
+      "gsm7_septets": 69,
+      "expected_error": "SENDER_DEVICE_MISMATCH"
+    }
+  ]
+}
