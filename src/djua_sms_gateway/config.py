@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import json
 import os
 import re
 
@@ -56,10 +57,16 @@ class GsmConfig:
             raise ValueError("GSM_COMMAND_TIMEOUT_SECONDS must be > 0")
         if self.reconnect_seconds <= 0:
             raise ValueError("GSM_RECONNECT_SECONDS must be > 0")
-        if self.sms_storage and re.fullmatch(r"[A-Za-z0-9]{1,8}", self.sms_storage) is None:
+        if (
+            self.sms_storage
+            and re.fullmatch(r"[A-Za-z0-9]{1,8}", self.sms_storage)
+            is None
+        ):
             raise ValueError("GSM_SMS_STORAGE contains invalid characters")
         if re.fullmatch(r"\d+(?:,\d+){4}", self.cnmi) is None:
-            raise ValueError("GSM_CNMI must contain five comma-separated integers")
+            raise ValueError(
+                "GSM_CNMI must contain five comma-separated integers"
+            )
         return self
 
     @classmethod
@@ -67,15 +74,135 @@ class GsmConfig:
         config = cls(
             serial_port=os.getenv("SERIAL_PORT", ""),
             baud_rate=_env_int("SERIAL_BAUD_RATE", 9600),
-            serial_timeout_seconds=_env_float("SERIAL_TIMEOUT_SECONDS", 0.5),
-            serial_write_timeout_seconds=_env_float("SERIAL_WRITE_TIMEOUT_SECONDS", 2.0),
+            serial_timeout_seconds=_env_float(
+                "SERIAL_TIMEOUT_SECONDS",
+                0.5,
+            ),
+            serial_write_timeout_seconds=_env_float(
+                "SERIAL_WRITE_TIMEOUT_SECONDS",
+                2.0,
+            ),
             init_retries=_env_int("GSM_INIT_RETRIES", 3),
-            command_timeout_seconds=_env_float("GSM_COMMAND_TIMEOUT_SECONDS", 5.0),
-            reconnect_seconds=_env_float("GSM_RECONNECT_SECONDS", 5.0),
+            command_timeout_seconds=_env_float(
+                "GSM_COMMAND_TIMEOUT_SECONDS",
+                5.0,
+            ),
+            reconnect_seconds=_env_float(
+                "GSM_RECONNECT_SECONDS",
+                5.0,
+            ),
             sms_storage=os.getenv("GSM_SMS_STORAGE") or None,
             cnmi=os.getenv("GSM_CNMI", "2,1,0,0,0"),
         )
         return config.validate()
+
+
+@dataclass(frozen=True)
+class D2SecurityConfig:
+    mode: str = "development"
+    hmac_keys: dict[str, bytes] = field(default_factory=dict)
+    sender_bindings: dict[str, tuple[str, ...]] = field(
+        default_factory=dict
+    )
+
+    def validate(self) -> "D2SecurityConfig":
+        if self.mode not in {"development", "production"}:
+            raise ValueError(
+                "D2_AUTH_MODE must be development or production"
+            )
+
+        device_re = re.compile(r"^[A-Z0-9-]{1,32}$")
+        e164_re = re.compile(r"^\+[1-9][0-9]{7,14}$")
+
+        for device_id, key in self.hmac_keys.items():
+            if device_re.fullmatch(device_id) is None:
+                raise ValueError(
+                    f"invalid D2 key device_id: {device_id!r}"
+                )
+            if len(key) != 32:
+                raise ValueError(
+                    f"D2 HMAC key for {device_id} must be 32 bytes"
+                )
+
+        for device_id, senders in self.sender_bindings.items():
+            if device_re.fullmatch(device_id) is None:
+                raise ValueError(
+                    f"invalid D2 sender device_id: {device_id!r}"
+                )
+            if not senders:
+                raise ValueError(
+                    f"D2 sender binding for {device_id} is empty"
+                )
+            for sender in senders:
+                if e164_re.fullmatch(sender) is None:
+                    raise ValueError(
+                        f"D2 sender for {device_id} must be E.164"
+                    )
+        return self
+
+    def key_for(self, device_id: str) -> bytes | None:
+        return self.hmac_keys.get(device_id)
+
+    def senders_for(self, device_id: str) -> tuple[str, ...]:
+        return self.sender_bindings.get(device_id, ())
+
+    @classmethod
+    def from_env(cls) -> "D2SecurityConfig":
+        mode = os.getenv("D2_AUTH_MODE", "development").strip().lower()
+
+        try:
+            raw_keys = json.loads(
+                os.getenv("D2_HMAC_KEYS_JSON", "{}")
+            )
+            raw_bindings = json.loads(
+                os.getenv("D2_SENDER_BINDINGS_JSON", "{}")
+            )
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "D2 security JSON environment variable is invalid"
+            ) from exc
+
+        if not isinstance(raw_keys, dict):
+            raise ValueError("D2_HMAC_KEYS_JSON must be a JSON object")
+        if not isinstance(raw_bindings, dict):
+            raise ValueError(
+                "D2_SENDER_BINDINGS_JSON must be a JSON object"
+            )
+
+        keys: dict[str, bytes] = {}
+        for device_id, value in raw_keys.items():
+            if not isinstance(value, str):
+                raise ValueError(
+                    "D2_HMAC_KEYS_JSON values must be hex strings"
+                )
+            try:
+                keys[str(device_id)] = bytes.fromhex(value)
+            except ValueError as exc:
+                raise ValueError(
+                    f"D2 HMAC key for {device_id} is not valid hex"
+                ) from exc
+
+        bindings: dict[str, tuple[str, ...]] = {}
+        for device_id, value in raw_bindings.items():
+            if isinstance(value, str):
+                senders = (value,)
+            elif (
+                isinstance(value, list)
+                and all(isinstance(item, str) for item in value)
+            ):
+                senders = tuple(value)
+            else:
+                raise ValueError(
+                    "D2_SENDER_BINDINGS_JSON values must be strings "
+                    "or arrays of strings"
+                )
+            bindings[str(device_id)] = senders
+
+        return cls(
+            mode=mode,
+            hmac_keys=keys,
+            sender_bindings=bindings,
+        ).validate()
 
 
 @dataclass(frozen=True)
@@ -106,25 +233,39 @@ class MqttConfig:
         if not client_id:
             raise ValueError("MQTT_CLIENT_ID must not be empty")
         if client_id.startswith("djua-DJUA-"):
-            raise ValueError("MQTT_CLIENT_ID must be a gateway ID, not an ESP32 device client ID")
+            raise ValueError(
+                "MQTT_CLIENT_ID must be a gateway ID, not an ESP32 device client ID"
+            )
         if any(ch.isspace() for ch in client_id):
-            raise ValueError("MQTT_CLIENT_ID must not contain whitespace")
+            raise ValueError(
+                "MQTT_CLIENT_ID must not contain whitespace"
+            )
         if not prefix or "+" in prefix or "#" in prefix:
-            raise ValueError("MQTT_TOPIC_PREFIX must be non-empty and contain no MQTT wildcards")
+            raise ValueError(
+                "MQTT_TOPIC_PREFIX must be non-empty and contain no MQTT wildcards"
+            )
         if self.qos not in (0, 1, 2):
             raise ValueError("MQTT_QOS must be 0, 1 or 2")
         if self.keepalive_seconds <= 0:
             raise ValueError("MQTT_KEEPALIVE_SECONDS must be > 0")
         if self.connect_timeout_seconds <= 0:
-            raise ValueError("MQTT_CONNECT_TIMEOUT_SECONDS must be > 0")
+            raise ValueError(
+                "MQTT_CONNECT_TIMEOUT_SECONDS must be > 0"
+            )
         if self.publish_timeout_seconds <= 0:
-            raise ValueError("MQTT_PUBLISH_TIMEOUT_SECONDS must be > 0")
+            raise ValueError(
+                "MQTT_PUBLISH_TIMEOUT_SECONDS must be > 0"
+            )
         if self.retry_base_seconds <= 0:
             raise ValueError("MQTT_RETRY_BASE_SECONDS must be > 0")
         if self.retry_max_seconds < self.retry_base_seconds:
-            raise ValueError("MQTT_RETRY_MAX_SECONDS must be >= MQTT_RETRY_BASE_SECONDS")
+            raise ValueError(
+                "MQTT_RETRY_MAX_SECONDS must be >= MQTT_RETRY_BASE_SECONDS"
+            )
         if self.password and not self.username:
-            raise ValueError("MQTT_USERNAME is required when MQTT_PASSWORD is set")
+            raise ValueError(
+                "MQTT_USERNAME is required when MQTT_PASSWORD is set"
+            )
         return self
 
     @property
@@ -138,17 +279,38 @@ class MqttConfig:
         config = cls(
             host=os.getenv("MQTT_HOST", ""),
             port=_env_int("MQTT_PORT", 1883),
-            client_id=os.getenv("MQTT_CLIENT_ID", "djua-sms-gateway-001"),
+            client_id=os.getenv(
+                "MQTT_CLIENT_ID",
+                "djua-sms-gateway-001",
+            ),
             username=username,
             password=password,
-            topic_prefix=os.getenv("MQTT_TOPIC_PREFIX", "djua/test"),
+            topic_prefix=os.getenv(
+                "MQTT_TOPIC_PREFIX",
+                "djua/test",
+            ),
             qos=_env_int("MQTT_QOS", 1),
             retain=_env_bool("MQTT_RETAIN", False),
-            keepalive_seconds=_env_int("MQTT_KEEPALIVE_SECONDS", 60),
-            connect_timeout_seconds=_env_float("MQTT_CONNECT_TIMEOUT_SECONDS", 10.0),
-            publish_timeout_seconds=_env_float("MQTT_PUBLISH_TIMEOUT_SECONDS", 10.0),
-            retry_base_seconds=_env_float("MQTT_RETRY_BASE_SECONDS", 2.0),
-            retry_max_seconds=_env_float("MQTT_RETRY_MAX_SECONDS", 300.0),
+            keepalive_seconds=_env_int(
+                "MQTT_KEEPALIVE_SECONDS",
+                60,
+            ),
+            connect_timeout_seconds=_env_float(
+                "MQTT_CONNECT_TIMEOUT_SECONDS",
+                10.0,
+            ),
+            publish_timeout_seconds=_env_float(
+                "MQTT_PUBLISH_TIMEOUT_SECONDS",
+                10.0,
+            ),
+            retry_base_seconds=_env_float(
+                "MQTT_RETRY_BASE_SECONDS",
+                2.0,
+            ),
+            retry_max_seconds=_env_float(
+                "MQTT_RETRY_MAX_SECONDS",
+                300.0,
+            ),
             tls=_env_bool("MQTT_TLS", False),
         )
         return config.validate()
@@ -160,4 +322,9 @@ class AppConfig:
 
     @classmethod
     def from_env(cls) -> "AppConfig":
-        return cls(database_path=os.getenv("DATABASE_PATH", "data/djua_sms_gateway.db"))
+        return cls(
+            database_path=os.getenv(
+                "DATABASE_PATH",
+                "data/djua_sms_gateway.db",
+            )
+        )

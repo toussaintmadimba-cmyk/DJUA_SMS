@@ -7,6 +7,7 @@ import hashlib
 import json
 import sqlite3
 
+from djua_sms_gateway.protocol.d2 import D2Message, derive_message_id
 from djua_sms_gateway.protocol.models import SmsTelemetry, ValidationResult
 
 from .database import Database
@@ -123,6 +124,14 @@ def compute_logical_dedupe_key(telemetry: SmsTelemetry) -> str:
     )
 
 
+def compute_d2_content_hash(message: D2Message) -> str:
+    """Hash the canonical signed D2 content, excluding AUTH text."""
+
+    return hashlib.sha256(
+        message.signed_part.encode("ascii")
+    ).hexdigest()
+
+
 def _inbound_from_row(row: sqlite3.Row) -> InboundSmsRecord:
     return InboundSmsRecord(
         id=row["id"],
@@ -135,6 +144,11 @@ def _inbound_from_row(row: sqlite3.Row) -> InboundSmsRecord:
         protocol_version=row["protocol_version"],
         device_id=row["device_id"],
         sequence=row["sequence"],
+        message_id=row["message_id"],
+        d2_content_hash=row["d2_content_hash"],
+        auth_status=row["auth_status"],
+        security_status=row["security_status"],
+        conflict_with_sms_id=row["conflict_with_sms_id"],
         status=InboundStatus(row["status"]),
         validation_status=row["validation_status"],
         validation_warning=row["validation_warning"],
@@ -346,6 +360,232 @@ class SmsRepository:
                 sms_id=sms_id,
                 outbox=_outbox_from_row(row),
             )
+
+    def mark_d2_rejected(
+        self,
+        sms_id: int,
+        message: D2Message,
+        *,
+        validation_error: str,
+        security_status: str,
+        auth_status: str | None = None,
+    ) -> InboundSmsRecord:
+        """Archive a parsed D2 security rejection without claiming message_id."""
+
+        now = utc_now()
+        message_id = derive_message_id(message)
+        with self.database.transaction(immediate=True) as connection:
+            connection.execute(
+                """
+                UPDATE inbound_sms
+                SET protocol_version = ?, device_id = ?, sequence = ?,
+                    message_id = ?, d2_content_hash = NULL,
+                    auth_status = ?, security_status = ?,
+                    conflict_with_sms_id = NULL,
+                    status = ?, validation_status = ?,
+                    validation_warning = NULL, validation_error = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    message.protocol_version,
+                    message.device_id,
+                    message.sequence,
+                    message_id,
+                    auth_status,
+                    security_status,
+                    InboundStatus.INVALID.value,
+                    "SECURITY_REJECTED",
+                    validation_error,
+                    now,
+                    sms_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM inbound_sms WHERE id = ?",
+                (sms_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"inbound SMS {sms_id} not found")
+            return _inbound_from_row(row)
+
+    def queue_d2_message(
+        self,
+        sms_id: int,
+        message: D2Message,
+        *,
+        auth_status: str,
+        topic: str,
+        payload_json: str,
+        qos: int = 1,
+        retain: bool = False,
+    ) -> QueueResult:
+        """Atomically claim a D2 message_id and create its MQTT outbox.
+
+        Replays with the same signed content create no second outbox.
+        The same message_id with different signed content is an explicit
+        conflict and is never downgraded to a normal duplicate.
+        """
+
+        message_id = derive_message_id(message)
+        content_hash = compute_d2_content_hash(message)
+        now = utc_now()
+
+        with self.database.transaction(immediate=True) as connection:
+            existing = connection.execute(
+                """
+                SELECT id, d2_content_hash
+                FROM inbound_sms
+                WHERE message_id = ?
+                  AND id <> ?
+                  AND d2_content_hash IS NOT NULL
+                  AND security_status IS NULL
+                ORDER BY id
+                LIMIT 1
+                """,
+                (message_id, sms_id),
+            ).fetchone()
+
+            if existing is not None:
+                if existing["d2_content_hash"] == content_hash:
+                    connection.execute(
+                        """
+                        UPDATE inbound_sms
+                        SET protocol_version = ?, device_id = ?,
+                            sequence = ?, message_id = ?,
+                            d2_content_hash = ?, auth_status = ?,
+                            security_status = NULL,
+                            conflict_with_sms_id = NULL,
+                            status = ?, validation_status = ?,
+                            validation_warning = ?,
+                            validation_error = NULL, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            message.protocol_version,
+                            message.device_id,
+                            message.sequence,
+                            message_id,
+                            content_hash,
+                            auth_status,
+                            InboundStatus.VALIDATED.value,
+                            "VALID",
+                            f"DUPLICATE_MESSAGE_ID:{existing['id']}",
+                            now,
+                            sms_id,
+                        ),
+                    )
+                    return QueueResult(
+                        QueueDisposition.DUPLICATE_LOGICAL,
+                        sms_id=sms_id,
+                        outbox=None,
+                        duplicate_of_sms_id=int(existing["id"]),
+                    )
+
+                connection.execute(
+                    """
+                    UPDATE inbound_sms
+                    SET protocol_version = ?, device_id = ?,
+                        sequence = ?, message_id = ?,
+                        d2_content_hash = ?, auth_status = ?,
+                        security_status = ?,
+                        conflict_with_sms_id = ?,
+                        status = ?, validation_status = ?,
+                        validation_warning = NULL,
+                        validation_error = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        message.protocol_version,
+                        message.device_id,
+                        message.sequence,
+                        message_id,
+                        content_hash,
+                        auth_status,
+                        "MESSAGE_ID_CONFLICT",
+                        int(existing["id"]),
+                        InboundStatus.INVALID.value,
+                        "CONFLICT",
+                        f"MESSAGE_ID_CONFLICT:{existing['id']}",
+                        now,
+                        sms_id,
+                    ),
+                )
+                return QueueResult(
+                    QueueDisposition.MESSAGE_ID_CONFLICT,
+                    sms_id=sms_id,
+                    outbox=None,
+                    duplicate_of_sms_id=int(existing["id"]),
+                )
+
+            connection.execute(
+                """
+                UPDATE inbound_sms
+                SET protocol_version = ?, device_id = ?, sequence = ?,
+                    message_id = ?, d2_content_hash = ?,
+                    auth_status = ?, security_status = NULL,
+                    conflict_with_sms_id = NULL,
+                    status = ?, validation_status = ?,
+                    validation_warning = NULL,
+                    validation_error = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    message.protocol_version,
+                    message.device_id,
+                    message.sequence,
+                    message_id,
+                    content_hash,
+                    auth_status,
+                    InboundStatus.QUEUED.value,
+                    "VALID",
+                    now,
+                    sms_id,
+                ),
+            )
+
+            cursor = connection.execute(
+                """
+                INSERT INTO mqtt_outbox (
+                    sms_id, topic, payload_json, qos, retain, status,
+                    attempt_count, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                """,
+                (
+                    sms_id,
+                    topic,
+                    payload_json,
+                    qos,
+                    int(retain),
+                    OutboxStatus.PENDING.value,
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM mqtt_outbox WHERE id = ?",
+                (cursor.lastrowid,),
+            ).fetchone()
+            return QueueResult(
+                QueueDisposition.QUEUED,
+                sms_id=sms_id,
+                outbox=_outbox_from_row(row),
+            )
+
+    def get_inbound_by_message_id(
+        self,
+        message_id: str,
+    ) -> list[InboundSmsRecord]:
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM inbound_sms
+                WHERE message_id = ?
+                ORDER BY id
+                """,
+                (message_id,),
+            ).fetchall()
+        return [_inbound_from_row(row) for row in rows]
 
     def get_inbound(self, sms_id: int) -> InboundSmsRecord | None:
         with self.database.connect() as connection:

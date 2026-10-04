@@ -1,4 +1,4 @@
-"""Small sqlite3 database wrapper with an explicit schema version."""
+"""Small sqlite3 database wrapper with explicit compatible migrations."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import sqlite3
 from typing import Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class ClosingConnection(sqlite3.Connection):
@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS inbound_sms (
     protocol_version TEXT NULL,
     device_id TEXT NULL,
     sequence INTEGER NULL,
+    message_id TEXT NULL,
+    d2_content_hash TEXT NULL,
+    auth_status TEXT NULL,
+    security_status TEXT NULL,
+    conflict_with_sms_id INTEGER NULL,
     status TEXT NOT NULL CHECK (
         status IN ('RECEIVED','INVALID','VALIDATED','QUEUED','PUBLISHED','FAILED')
     ),
@@ -61,9 +66,20 @@ CREATE TABLE IF NOT EXISTS mqtt_outbox (
 
 CREATE INDEX IF NOT EXISTS idx_inbound_sms_status
     ON inbound_sms(status);
+CREATE INDEX IF NOT EXISTS idx_inbound_sms_message_id
+    ON inbound_sms(message_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_status_next_attempt
     ON mqtt_outbox(status, next_attempt_at, id);
 """
+
+_MIGRATION_V1_TO_V2 = (
+    "ALTER TABLE inbound_sms ADD COLUMN message_id TEXT NULL",
+    "ALTER TABLE inbound_sms ADD COLUMN d2_content_hash TEXT NULL",
+    "ALTER TABLE inbound_sms ADD COLUMN auth_status TEXT NULL",
+    "ALTER TABLE inbound_sms ADD COLUMN security_status TEXT NULL",
+    "ALTER TABLE inbound_sms ADD COLUMN conflict_with_sms_id INTEGER NULL",
+    "CREATE INDEX IF NOT EXISTS idx_inbound_sms_message_id ON inbound_sms(message_id)",
+)
 
 
 class Database:
@@ -74,7 +90,9 @@ class Database:
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(
-            self.path, timeout=5.0, factory=ClosingConnection
+            self.path,
+            timeout=5.0,
+            factory=ClosingConnection,
         )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
@@ -87,21 +105,42 @@ class Database:
             parent.mkdir(parents=True, exist_ok=True)
 
         with self.connect() as connection:
-            current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            current_version = int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
+            )
             if current_version > SCHEMA_VERSION:
                 raise RuntimeError(
                     f"database schema version {current_version} is newer than supported "
                     f"version {SCHEMA_VERSION}"
                 )
+
+            if current_version == 0:
+                connection.executescript(_SCHEMA)
+                connection.execute(
+                    f"PRAGMA user_version = {SCHEMA_VERSION}"
+                )
+                return
+
+            if current_version == 1:
+                for statement in _MIGRATION_V1_TO_V2:
+                    connection.execute(statement)
+                connection.execute(
+                    f"PRAGMA user_version = {SCHEMA_VERSION}"
+                )
+
             connection.executescript(_SCHEMA)
-            if current_version < SCHEMA_VERSION:
-                connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     @contextmanager
-    def transaction(self, *, immediate: bool = False) -> Iterator[sqlite3.Connection]:
+    def transaction(
+        self,
+        *,
+        immediate: bool = False,
+    ) -> Iterator[sqlite3.Connection]:
         connection = self.connect()
         try:
-            connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+            connection.execute(
+                "BEGIN IMMEDIATE" if immediate else "BEGIN"
+            )
             yield connection
             connection.commit()
         except Exception:

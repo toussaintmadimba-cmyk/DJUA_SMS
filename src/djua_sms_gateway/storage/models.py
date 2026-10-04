@@ -29,6 +29,7 @@ class StoreDisposition(str, Enum):
 class QueueDisposition(str, Enum):
     QUEUED = "QUEUED"
     DUPLICATE_LOGICAL = "DUPLICATE_LOGICAL"
+    MESSAGE_ID_CONFLICT = "MESSAGE_ID_CONFLICT"
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,11 @@ class InboundSmsRecord:
     protocol_version: str | None
     device_id: str | None
     sequence: int | None
+    message_id: str | None
+    d2_content_hash: str | None
+    auth_status: str | None
+    security_status: str | None
+    conflict_with_sms_id: int | None
     status: InboundStatus
     validation_status: str | None
     validation_warning: str | None
