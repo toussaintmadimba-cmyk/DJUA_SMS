@@ -194,7 +194,7 @@ AUTH = RFC4648 base64url(tag_bytes) without "=" padding
 
 The authenticated tag is exactly 11 characters. Comparison must be constant-time.
 
-Development mode permits `AUTH=-` and yields `AUTH_NOT_VERIFIED`. A present but incorrect HMAC is always rejected. Production mode requires a valid HMAC.
+Development mode permits `AUTH=-` and yields backend `auth_status = NOT_VERIFIED`. A present but incorrect HMAC is always rejected. Production mode requires a valid HMAC.
 
 ## 9. Sender binding
 
