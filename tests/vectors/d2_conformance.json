@@ -398,7 +398,7 @@
       "signed_part": "D2E,DJUA-KIN-000001,A,-,0,GX,-,-,-,00",
       "expected_auth": "-",
       "sms": "D2E,DJUA-KIN-000001,A,-,0,GX,-,-,-,00,-",
-      "gsm7_septets": 44,
+      "gsm7_septets": 39,
       "expected_decoded": {
         "protocol": "D2E",
         "device_id": "DJUA-KIN-000001",
@@ -448,7 +448,7 @@
       "mode": "production",
       "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
       "sender": "+243810000001",
-      "sms": "D2T,DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD,1Z141Z3,1VUHMNZ,1Z141Z3,1UO0,-5CWG0,-APSW0,OOW,-4ABK,-1DDS,255S,-255S,-255S,-EAEIO,334,2BC,-2KLC,2KLC,-H5A80,3J,g7B9ktQgmyE",
+      "sms": "D2T,DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD,1Z141Z3,1VUHMNZ,1Z141Z3,1UO0,-5CWG0,-APSW0,OOW,-4ABK,-1DDS,255S,-255S,-255S,-EAEIO,334,2BC,-2KLC,2KLC,-H5A80,3J,Br9GrHXRJJ8",
       "gsm7_septets": 161,
       "expected_error": "SMS_TOO_LONG"
     },
@@ -466,7 +466,7 @@
       "mode": "production",
       "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
       "sender": "+243810000001",
-      "sms": "D2T,DJUA-KIN-000001,9IX,TM14E0,21I3V9,1E0,-99Q6,WU9O,9KG,DW,1Q,E1K,Y6,68,0V4,1RX,3H,1VX,27W,9FL,3J,oIEAoDoVvR0",
+      "sms": "D2T,DJUA-KIN-000001,9IX,TM14E0,21I3V9,1E0,-99Q6,WU9O,9KG,DW,1Q,E1K,Y6,68,0V4,1RX,3H,1VX,27W,9FL,3J,NOftEmHac-M",
       "gsm7_septets": 110,
       "expected_error": "NON_CANONICAL_BASE36"
     },
@@ -475,7 +475,7 @@
       "mode": "production",
       "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
       "sender": "+243810000001",
-      "sms": "D2T,DJUA-KIN-000001,9IX,TM14E0,21I3V9,1E0,-99Q6,WU9O,9KG,DW,1Q,E1K,Y6,68,V4,1RX,3H,1VX,27W,9FL,2F,jyjlc-HZpI0",
+      "sms": "D2T,DJUA-KIN-000001,9IX,TM14E0,21I3V9,1E0,-99Q6,WU9O,9KG,DW,1Q,E1K,Y6,68,V4,1RX,3H,1VX,27W,9FL,2F,j9EJWrxiHv0",
       "gsm7_septets": 109,
       "expected_error": "FLAG_VALUE_MISMATCH"
     },
