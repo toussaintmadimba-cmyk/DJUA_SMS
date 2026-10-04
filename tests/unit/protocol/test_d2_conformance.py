@@ -169,6 +169,28 @@ class D2ConformanceVectorTests(unittest.TestCase):
                     )
                 self.assertEqual(context.exception.code, expected)
 
+    def test_all_declared_gsm7_lengths_are_exact(self):
+        for vector in self.document["vectors"]:
+            if vector["name"] == "d2t_non_gsm7":
+                continue
+            with self.subTest(vector=vector["name"]):
+                self.assertIsInstance(vector["gsm7_septets"], int)
+                self.assertEqual(
+                    gsm7_septet_count(vector["sms"]),
+                    vector["gsm7_septets"],
+                )
+
+    def test_non_gsm7_vector_is_checked_separately(self):
+        vector = next(
+            item
+            for item in self.document["vectors"]
+            if item["name"] == "d2t_non_gsm7"
+        )
+        self.assertIsNone(vector["gsm7_septets"])
+        with self.assertRaises(D2ProtocolError) as context:
+            gsm7_septet_count(vector["sms"])
+        self.assertEqual(context.exception.code, "NON_GSM7")
+
     def test_boundary_vector_is_exactly_one_sms(self):
         vector = next(
             item
