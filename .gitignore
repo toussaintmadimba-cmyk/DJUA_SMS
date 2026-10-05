@@ -5,3 +5,5 @@ __pycache__/
 *.sqlite3
 *.db
 data/
+config/gateway.env
+logs/

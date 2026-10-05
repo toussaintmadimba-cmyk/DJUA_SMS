@@ -204,3 +204,44 @@ Le `message_id` est dérivé côté gateway sous la forme `D2:<device_id>:<seque
 La configuration D2 utilise `D2_AUTH_MODE`, `D2_HMAC_KEYS_JSON` et `D2_SENDER_BINDINGS_JSON`. Aucun secret réel ne doit être committé.
 
 Le script `sms_receive_test.py` charge cette configuration depuis l'environnement.
+
+
+## Automatisation Windows temporaire
+
+Pour la phase de test, DJUA_SMS peut fonctionner sans commande quotidienne et sans service Windows.
+
+Double-cliquer une seule fois sur :
+
+\`\`\`text
+setup_windows_test.bat
+\`\`\`
+
+Le script :
+
+1. crée \`.venv\` si nécessaire ;
+2. installe/vérifie les dépendances ;
+3. crée \`config/gateway.env\` à partir du modèle local ;
+4. ouvre ce fichier dans le Bloc-notes si une configuration est nécessaire ;
+5. vérifie la configuration sans ouvrir le modem ni MQTT ;
+6. installe la tâche Windows \`DJUA SMS Gateway Test\` ;
+7. démarre immédiatement la gateway en arrière-plan.
+
+Au prochain logon Windows, la tâche relance automatiquement DJUA_SMS.
+
+Le lanceur permanent est \`scripts/run_gateway.py\` et réutilise directement :
+
+\`\`\`text
+SIM868 -> SmsReceiver -> SQLite -> D1/D2 -> mqtt_outbox -> MQTT
+\`\`\`
+
+La console est masquée par \`start_djua_gateway_hidden.vbs\`. Le lanceur batch redémarre le processus après une erreur fatale avec un délai de 10 secondes.
+
+La configuration locale est \`config/gateway.env\`. Le modèle propose déjà \`COM16\`, 9600 bauds et \`D2_AUTH_MODE=development\`. \`MQTT_HOST\` doit être renseigné avec le broker utilisé pour les essais.
+
+Les logs sont écrits dans \`logs/gateway.log\`, avec rotation à 5 MiB et cinq sauvegardes.
+
+Pour arrêter proprement la gateway sans CMD, double-cliquer sur \`stop_djua_gateway.bat\`.
+
+Pour arrêter et retirer le démarrage automatique, double-cliquer sur \`disable_windows_test_autostart.bat\`.
+
+Les vrais secrets D2/MQTT restent uniquement dans \`config/gateway.env\`, qui est ignoré par Git.
