@@ -11,7 +11,7 @@ echo.
 if not exist ".venv\Scripts\python.exe" (
     echo [1/5] Creation de l'environnement Python...
     where py >nul 2>nul
-    if %ERRORLEVEL%==0 (
+    if not errorlevel 1 (
         py -3 -m venv .venv
     ) else (
         python -m venv .venv
@@ -56,7 +56,7 @@ if errorlevel 1 (
 )
 
 echo [5/5] Installation de la tache Windows...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\install_windows_test_task.ps1" -Root "%~dp0"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\install_windows_test_task.ps1" -Root "%~dp0."
 if errorlevel 1 goto :fail
 
 echo.

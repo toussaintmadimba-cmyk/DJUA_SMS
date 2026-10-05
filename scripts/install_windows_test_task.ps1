@@ -5,7 +5,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $TaskName = "DJUA SMS Gateway Test"
-$Root = (Resolve-Path $Root).Path
+$Root = $Root.Trim().TrimEnd('"')
+$Root = (Resolve-Path -LiteralPath $Root).Path.TrimEnd("\\")
 $Launcher = Join-Path $Root "start_djua_gateway_hidden.vbs"
 
 if (-not (Test-Path $Launcher)) {

@@ -61,6 +61,22 @@ class RunGatewayConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_runtime_configs()
 
+    def test_runtime_config_rejects_numeric_host_that_is_really_a_port(self):
+        env = {
+            "SERIAL_PORT": "COM16",
+            "MQTT_HOST": "8000",
+            "MQTT_PORT": "1883",
+            "D2_AUTH_MODE": "development",
+            "D2_HMAC_KEYS_JSON": "{}",
+            "D2_SENDER_BINDINGS_JSON": "{}",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaisesRegex(
+                ValueError,
+                "looks like a port number",
+            ):
+                load_runtime_configs()
+
     def test_runtime_config_accepts_temporary_windows_test_values(self):
         env = {
             "DATABASE_PATH": "data/test.db",
@@ -105,6 +121,22 @@ class WindowsAutomationAssetsTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn('if "%EXIT_CODE%"=="0" exit /b 0', content)
         self.assertIn("goto restart", content)
+
+    def test_setup_passes_root_without_trailing_backslash_quote_problem(self):
+        root = Path(__file__).resolve().parents[2]
+        content = (
+            root / "setup_windows_test.bat"
+        ).read_text(encoding="utf-8")
+        self.assertIn('-Root "%~dp0."', content)
+        self.assertNotIn('-Root "%~dp0"\n', content)
+
+    def test_powershell_normalizes_root_path_before_resolve(self):
+        root = Path(__file__).resolve().parents[2]
+        content = (
+            root / "scripts" / "install_windows_test_task.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("TrimEnd", content)
+        self.assertIn("Resolve-Path -LiteralPath", content)
 
     def test_setup_validates_configuration_before_installing_task(self):
         root = Path(__file__).resolve().parents[2]

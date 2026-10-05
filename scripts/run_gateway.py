@@ -129,13 +129,20 @@ def load_runtime_configs():
     mqtt = MqttConfig.from_env()
     security = D2SecurityConfig.from_env()
 
-    if mqtt.host.strip().upper() in {
+    host = mqtt.host.strip()
+    if host.upper() in {
         "CHANGE_ME",
         "TODO",
         "BROKER_A_CONFIGURER",
     }:
         raise ValueError(
             "MQTT_HOST still contains a placeholder; edit config/gateway.env"
+        )
+    if host.isdigit():
+        raise ValueError(
+            "MQTT_HOST looks like a port number. Put the broker address "
+            "in MQTT_HOST (for example 127.0.0.1 or a hostname) and the "
+            "port in MQTT_PORT."
         )
 
     return app, gsm, mqtt, security
