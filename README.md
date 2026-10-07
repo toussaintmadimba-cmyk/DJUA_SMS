@@ -130,16 +130,7 @@ python -m compileall -q src tests scripts
 PYTHONPATH=src:. python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-État actuel :
-
-```text
-TOTAL : 208
-PASS  : 208
-FAIL  : 0
-SKIP  : 0
-```
-
-Les tests historiques D1/GSM/MQTT restent verts ; la suite couvre désormais aussi D2T/D2T2/D2E, HMAC, GSM-7, migration SQLite, déduplication/conflits et flux GSM/MQTT simulés.
+La suite couvre D1/GSM/MQTT ainsi que D2T/D2T2/D2E, HMAC, GSM-7, migration SQLite, déduplication/conflits et flux GSM/MQTT simulés. Le résultat exact du dernier run CI doit être utilisé comme preuve, plutôt qu'un compteur statique dans ce fichier.
 
 ## Diagnostics matériels
 
@@ -187,14 +178,15 @@ Ne pas commencer automatiquement :
 
 Attendre une autorisation explicite pour l'étape suivante.
 
-## D2T / D2E
+## D2T / D2T2 / D2E
 
 D2 étend la gateway existante ; il ne crée pas une deuxième chaîne de réception.
 
 ```text
-D1,  -> comportement historique
-D2T, -> télémétrie périodique
-D2E, -> événement urgent GX/GE
+D1,   -> comportement historique
+D2T,  -> télémétrie périodique legacy
+D2T2, -> télémétrie compacte + charge DC
+D2E,  -> événement urgent GX/GE
 ```
 
 D2T contient exactement 22 champs et son maximum authentifié est 160 septets GSM-7. D2T2 conserve les mesures D2T, ajoute tension/courant/puissance/énergie de charge DC dans un payload compact de 60 octets, et son maximum authentifié est 130 septets. D2E contient 11 champs et son maximum est 97 septets.
