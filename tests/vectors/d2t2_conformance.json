@@ -1,0 +1,354 @@
+{
+  "protocol": "D2T2",
+  "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+  "vectors": [
+    {
+      "name": "d2t2_typical_authenticated",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "signed_part": "D2T2,DJUA-KIN-000001,AAAwOWq5NngHW80VA4R-WaCBdhPGDgAH0AB8RxgBM4AOAAARgj9B9AmNBZ4ABfgjA-AyAAGLAAHuAH_A",
+      "expected_auth": "rHcRllcP4gs",
+      "sms": "D2T2,DJUA-KIN-000001,AAAwOWq5NngHW80VA4R-WaCBdhPGDgAH0AB8RxgBM4AOAAARgj9B9AmNBZ4ABfgjA-AyAAGLAAHuAH_A,rHcRllcP4gs",
+      "gsm7_septets": 113,
+      "expected_decoded": {
+        "protocol": "D2T2",
+        "device_id": "DJUA-KIN-000001",
+        "sequence": 12345,
+        "rtc_epoch_s": 1790523000,
+        "uptime_ms": 123456789,
+        "interval_seconds": 1800,
+        "latitude": -4.3251,
+        "longitude": 15.3222,
+        "battery": {
+          "voltage_v": 12.4,
+          "current_a": 0.5,
+          "power_w": 6.2
+        },
+        "solar": {
+          "voltage_v": 18.2,
+          "current_a": 1.23,
+          "power_w": 22.4,
+          "energy_interval_wh": 11.2
+        },
+        "ac_load": {
+          "voltage_v": 230.1,
+          "current_a": 1.25,
+          "active_power_w": 244.5,
+          "apparent_power_va": 287.6,
+          "energy_interval_wh": 122.25
+        },
+        "dc_load": {
+          "voltage_v": 12.35,
+          "current_a": 3.2,
+          "power_w": 39.5,
+          "energy_interval_wh": 19.76
+        },
+        "flags": 511
+      },
+      "backend_topic": "djua/test/DJUA-KIN-000001/telemetry",
+      "gateway_received_at": "2026-09-27T15:30:05.123000+00:00",
+      "expected_backend_payload": {
+        "protocol": "D2T2",
+        "message_id": "D2:DJUA-KIN-000001:9IX",
+        "sequence": 12345,
+        "kit_id": "DJUA-KIN-000001",
+        "uptime_ms": 123456789,
+        "timestamp_ms": 123456789,
+        "gateway_received_at": "2026-09-27T15:30:05.123000+00:00",
+        "interval_seconds": 1800,
+        "latitude": -4.3251,
+        "longitude": 15.3222,
+        "battery": {
+          "voltage_v": 12.4,
+          "current_a": 0.5,
+          "power_w": 6.2
+        },
+        "solar": {
+          "voltage_v": 18.2,
+          "current_a": 1.23,
+          "power_w": 22.4,
+          "energy_interval_wh": 11.2
+        },
+        "ac_load": {
+          "voltage_v": 230.1,
+          "current_a": 1.25,
+          "active_power_w": 244.5,
+          "apparent_power_va": 287.6,
+          "energy_interval_wh": 122.25
+        },
+        "dc_load": {
+          "voltage_v": 12.35,
+          "current_a": 3.2,
+          "power_w": 39.5,
+          "energy_interval_wh": 19.76
+        },
+        "validity": {
+          "rtc": true,
+          "gps": true,
+          "battery": true,
+          "solar": true,
+          "solar_energy": true,
+          "ac": true,
+          "ac_energy": true,
+          "dc_load": true,
+          "dc_load_energy": true
+        },
+        "auth_status": "VERIFIED",
+        "timestamp": "2026-09-27T16:30:00+01:00",
+        "timezone": "GMT+1"
+      }
+    },
+    {
+      "name": "d2t2_max_authenticated",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "signed_part": "D2T2,DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD,______SGVv______qMBdqvAu1XgPoBPLAgwBhqCeWCeWCkcoA-gu4itA6mBJEYAYagnlgnlgpHKAAH_A",
+      "expected_auth": "OFXyFxdsTns",
+      "sms": "D2T2,DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD,______SGVv______qMBdqvAu1XgPoBPLAgwBhqCeWCeWCkcoA-gu4itA6mBJEYAYagnlgnlgpHKAAH_A,OFXyFxdsTns",
+      "gsm7_septets": 130,
+      "expected_decoded": {
+        "protocol": "D2T2",
+        "device_id": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+        "sequence": 4294967295,
+        "rtc_epoch_s": 4102444799,
+        "uptime_ms": 4294967295,
+        "interval_seconds": 86400,
+        "latitude": -90.0,
+        "longitude": -180.0,
+        "battery": {
+          "voltage_v": 32.0,
+          "current_a": -200.0,
+          "power_w": -6400.0
+        },
+        "solar": {
+          "voltage_v": 100.0,
+          "current_a": -100.0,
+          "power_w": -10000.0,
+          "energy_interval_wh": -240000.0
+        },
+        "ac_load": {
+          "voltage_v": 400.0,
+          "current_a": 30.0,
+          "active_power_w": -12000.0,
+          "apparent_power_va": 12000.0,
+          "energy_interval_wh": -288000.0
+        },
+        "dc_load": {
+          "voltage_v": 100.0,
+          "current_a": -100.0,
+          "power_w": -10000.0,
+          "energy_interval_wh": -240000.0
+        },
+        "flags": 511
+      },
+      "backend_topic": "djua/test/DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD/telemetry",
+      "gateway_received_at": "2026-09-27T15:30:05.123000+00:00",
+      "expected_backend_payload": {
+        "protocol": "D2T2",
+        "message_id": "D2:DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD:1Z141Z3",
+        "sequence": 4294967295,
+        "kit_id": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+        "uptime_ms": 4294967295,
+        "timestamp_ms": 4294967295,
+        "gateway_received_at": "2026-09-27T15:30:05.123000+00:00",
+        "interval_seconds": 86400,
+        "latitude": -90.0,
+        "longitude": -180.0,
+        "battery": {
+          "voltage_v": 32.0,
+          "current_a": -200.0,
+          "power_w": -6400.0
+        },
+        "solar": {
+          "voltage_v": 100.0,
+          "current_a": -100.0,
+          "power_w": -10000.0,
+          "energy_interval_wh": -240000.0
+        },
+        "ac_load": {
+          "voltage_v": 400.0,
+          "current_a": 30.0,
+          "active_power_w": -12000.0,
+          "apparent_power_va": 12000.0,
+          "energy_interval_wh": -288000.0
+        },
+        "dc_load": {
+          "voltage_v": 100.0,
+          "current_a": -100.0,
+          "power_w": -10000.0,
+          "energy_interval_wh": -240000.0
+        },
+        "validity": {
+          "rtc": true,
+          "gps": true,
+          "battery": true,
+          "solar": true,
+          "solar_energy": true,
+          "ac": true,
+          "ac_energy": true,
+          "dc_load": true,
+          "dc_load_energy": true
+        },
+        "auth_status": "VERIFIED",
+        "timestamp": "2100-01-01T00:59:59+01:00",
+        "timezone": "GMT+1"
+      }
+    },
+    {
+      "name": "d2t2_dev_auth_absent",
+      "mode": "development",
+      "sender": "+243810000001",
+      "signed_part": "D2T2,DJUA-KIN-000001,AAAACgAAAAAAAAAAAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected_auth": "-",
+      "sms": "D2T2,DJUA-KIN-000001,AAAACgAAAAAAAAAAAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,-",
+      "gsm7_septets": 103,
+      "expected_decoded": {
+        "protocol": "D2T2",
+        "device_id": "DJUA-KIN-000001",
+        "sequence": 10,
+        "rtc_epoch_s": null,
+        "uptime_ms": 0,
+        "interval_seconds": 10,
+        "latitude": null,
+        "longitude": null,
+        "battery": {
+          "voltage_v": null,
+          "current_a": null,
+          "power_w": null
+        },
+        "solar": {
+          "voltage_v": null,
+          "current_a": null,
+          "power_w": null,
+          "energy_interval_wh": null
+        },
+        "ac_load": {
+          "voltage_v": null,
+          "current_a": null,
+          "active_power_w": null,
+          "apparent_power_va": null,
+          "energy_interval_wh": null
+        },
+        "dc_load": {
+          "voltage_v": null,
+          "current_a": null,
+          "power_w": null,
+          "energy_interval_wh": null
+        },
+        "flags": 0
+      },
+      "backend_topic": "djua/test/DJUA-KIN-000001/telemetry",
+      "gateway_received_at": "2026-09-27T15:30:05.123000+00:00",
+      "expected_backend_payload": {
+        "protocol": "D2T2",
+        "message_id": "D2:DJUA-KIN-000001:A",
+        "sequence": 10,
+        "kit_id": "DJUA-KIN-000001",
+        "uptime_ms": 0,
+        "timestamp_ms": 0,
+        "gateway_received_at": "2026-09-27T15:30:05.123000+00:00",
+        "interval_seconds": 10,
+        "latitude": null,
+        "longitude": null,
+        "battery": {
+          "voltage_v": null,
+          "current_a": null,
+          "power_w": null
+        },
+        "solar": {
+          "voltage_v": null,
+          "current_a": null,
+          "power_w": null,
+          "energy_interval_wh": null
+        },
+        "ac_load": {
+          "voltage_v": null,
+          "current_a": null,
+          "active_power_w": null,
+          "apparent_power_va": null,
+          "energy_interval_wh": null
+        },
+        "dc_load": {
+          "voltage_v": null,
+          "current_a": null,
+          "power_w": null,
+          "energy_interval_wh": null
+        },
+        "validity": {
+          "rtc": false,
+          "gps": false,
+          "battery": false,
+          "solar": false,
+          "solar_energy": false,
+          "ac": false,
+          "ac_energy": false,
+          "dc_load": false,
+          "dc_load_energy": false
+        },
+        "auth_status": "NOT_VERIFIED"
+      }
+    },
+    {
+      "name": "d2t2_bad_hmac",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "sms": "D2T2,DJUA-KIN-000001,AAAwOWq5NngHW80VA4R-WaCBdhPGDgAH0AB8RxgBM4AOAAARgj9B9AmNBZ4ABfgjA-AyAAGLAAHuAH_A,rHcRllcP4gA",
+      "gsm7_septets": 113,
+      "expected_error": "AUTH_INVALID"
+    },
+    {
+      "name": "d2t2_prod_auth_absent",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243810000001",
+      "sms": "D2T2,DJUA-KIN-000001,AAAACgAAAAAAAAAAAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,-",
+      "gsm7_septets": 103,
+      "expected_error": "AUTH_REQUIRED"
+    },
+    {
+      "name": "d2t2_sender_mismatch",
+      "mode": "production",
+      "test_key_hex": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+      "sender": "+243899999999",
+      "allowed_sender": "+243810000001",
+      "sms": "D2T2,DJUA-KIN-000001,AAAwOWq5NngHW80VA4R-WaCBdhPGDgAH0AB8RxgBM4AOAAARgj9B9AmNBZ4ABfgjA-AyAAGLAAHuAH_A,rHcRllcP4gs",
+      "gsm7_septets": 113,
+      "expected_error": "SENDER_DEVICE_MISMATCH"
+    },
+    {
+      "name": "d2t2_reserved_flags",
+      "mode": "development",
+      "sender": "+243810000001",
+      "sms": "D2T2,DJUA-KIN-000001,AAAACwAAAAAAAAAAAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAA,-",
+      "gsm7_septets": 103,
+      "expected_error": "INVALID_FLAGS"
+    },
+    {
+      "name": "d2t2_noncanonical_absent",
+      "mode": "development",
+      "sender": "+243810000001",
+      "sms": "D2T2,DJUA-KIN-000001,AAAACwAAAAAAAAAAAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAA,-",
+      "gsm7_septets": 103,
+      "expected_error": "NON_CANONICAL_ABSENT"
+    },
+    {
+      "name": "d2t2_energy_dependency",
+      "mode": "development",
+      "sender": "+243810000001",
+      "sms": "D2T2,DJUA-KIN-000001,AAAACwAAAAAAAAAAAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAA,-",
+      "gsm7_septets": 103,
+      "expected_error": "FLAG_DEPENDENCY"
+    },
+    {
+      "name": "d2t2_short_payload",
+      "mode": "development",
+      "sender": "+243810000001",
+      "sms": "D2T2,DJUA-KIN-000001,AAAACgAAAAAAAAAAAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,-",
+      "gsm7_septets": 102,
+      "expected_error": "D2T2_PAYLOAD_SHAPE"
+    }
+  ]
+}
