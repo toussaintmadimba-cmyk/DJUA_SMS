@@ -818,3 +818,96 @@ Le payload contient `protocol`, `message_id`, `sequence`, `kit_id`, `uptime_ms`,
 Valeurs auth_status : `VERIFIED` et `NOT_VERIFIED`. `NOT_VERIFIED` n'est publiable qu'en mode développement.
 
 **La compatibilité du backend réel avec ce JSON D2 n'est pas validée.** Les tests actuels couvrent le payload et MQTT avec doubles logiciels.
+
+
+---
+
+# Contrat D2T2 ajouté
+
+D2T2 est la nouvelle télémétrie compacte destinée aux nouveaux émetteurs. Elle ne remplace pas la prise en charge D2T côté gateway.
+
+## Topic
+
+```text
+djua/test/<device_id>/telemetry
+```
+
+Le topic reste identique à D2T.
+
+## Payload
+
+D2T2 conserve les groupes backend D2T :
+
+```text
+battery
+solar
+ac_load
+```
+
+et ajoute :
+
+```json
+"dc_load": {
+  "voltage_v": 12.35,
+  "current_a": 3.2,
+  "power_w": 39.5,
+  "energy_interval_wh": 19.76
+}
+```
+
+Les champs de transport/métadonnées D2 restent disponibles :
+
+```text
+protocol = D2T2
+message_id
+sequence
+kit_id
+uptime_ms
+timestamp_ms
+gateway_received_at
+interval_seconds
+timestamp/timezone si RTC valide
+latitude/longitude
+validity
+auth_status
+```
+
+Le bloc `validity` ajoute :
+
+```text
+dc_load
+dc_load_energy
+```
+
+Une mesure D2T2 indisponible est `null`; une vraie valeur zéro reste numérique zéro.
+
+## Sémantique DC load
+
+```text
+courant/puissance/énergie > 0 = consommation par la charge DC
+courant/puissance/énergie < 0 = flux inverse/régénératif vers la source
+```
+
+L'énergie `dc_load.energy_interval_wh` est une énergie nette sur `interval_seconds`, pas un compteur à vie.
+
+## Idempotence
+
+D2T2 utilise la même identité globale :
+
+```text
+message_id = D2:<device_id>:<sequence_base36>
+```
+
+La séquence est partagée entre D2T, D2T2 et D2E. Une réutilisation de séquence entre D2T et D2T2 devient donc un `MESSAGE_ID_CONFLICT`.
+
+## Compatibilité
+
+```text
+D2T  -> toujours accepté
+D2T2 -> accepté, décodé puis normalisé
+D2E  -> inchangé
+```
+
+Le backend n'a jamais à décoder le payload Base64URL compact : cette responsabilité appartient à DJUA_SMS.
+
+**La compatibilité du backend réel avec le JSON D2T2 et le nouveau bloc dc_load reste à valider end-to-end.**
