@@ -14,6 +14,6 @@ def detect_protocol(raw_message: str) -> str:
         return "D2E"
     raise D2ProtocolError(
         "UNSUPPORTED_PROTOCOL",
-        "expected D1, D2T or D2E",
+        "expected D1, D2T, D2T2 or D2E",
         "protocol",
     )
