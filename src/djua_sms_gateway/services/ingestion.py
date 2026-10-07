@@ -16,6 +16,12 @@ from djua_sms_gateway.protocol.d2 import (
     parse_d2,
     verify_d2_security,
 )
+from djua_sms_gateway.protocol.d2t2 import (
+    d2t2_backend_topic,
+    normalize_d2t2_to_backend,
+    parse_d2t2,
+    verify_d2t2_security,
+)
 from djua_sms_gateway.protocol.dispatch import detect_protocol
 from djua_sms_gateway.protocol.errors import ProtocolError
 from djua_sms_gateway.protocol.models import ValidationStatus
@@ -102,6 +108,13 @@ class SmsIngestionService:
 
         if protocol == "D1":
             return self._ingest_d1(raw, sms_id)
+
+        if protocol == "D2T2":
+            return self._ingest_d2t2(
+                raw,
+                sms_id,
+                stored.record.gateway_received_at,
+            )
 
         return self._ingest_d2(
             raw,
@@ -335,3 +348,144 @@ class SmsIngestionService:
             sms_id=sms_id,
             outbox_id=queued.outbox.id,
         )
+
+    def _ingest_d2t2(
+        self,
+        raw: RawSmsInput,
+        sms_id: int,
+        gateway_received_at: str,
+    ) -> IngestionResult:
+        try:
+            message = parse_d2t2(raw.raw_body)
+        except D2ProtocolError as exc:
+            self.repository.mark_invalid(
+                sms_id,
+                validation_error=str(exc),
+                validation_status=exc.code,
+            )
+            logger.info(
+                "SMS_D2T2_INVALID sms_id=%s code=%s",
+                sms_id,
+                exc.code,
+            )
+            return IngestionResult(
+                IngestionDisposition.INVALID,
+                sms_id=sms_id,
+                error=str(exc),
+            )
+
+        key = self.d2_security.key_for(message.device_id)
+        allowed_senders = self.d2_security.senders_for(
+            message.device_id
+        )
+
+        try:
+            auth_status = verify_d2t2_security(
+                message,
+                mode=self.d2_security.mode,
+                key=key,
+                sender=raw.sender,
+                allowed_senders=allowed_senders,
+            )
+        except D2ProtocolError as exc:
+            verified_before_sender_check = exc.code in {
+                "SENDER_INVALID",
+                "SENDER_BINDING_REQUIRED",
+                "SENDER_DEVICE_MISMATCH",
+            }
+            self.repository.mark_d2_rejected(
+                sms_id,
+                message,  # type: ignore[arg-type]
+                validation_error=str(exc),
+                security_status=exc.code,
+                auth_status=(
+                    D2AuthStatus.VERIFIED.value
+                    if verified_before_sender_check
+                    else None
+                ),
+            )
+            logger.warning(
+                "SMS_D2T2_SECURITY_REJECTED sms_id=%s code=%s",
+                sms_id,
+                exc.code,
+            )
+            return IngestionResult(
+                IngestionDisposition.INVALID,
+                sms_id=sms_id,
+                error=str(exc),
+            )
+
+        payload = normalize_d2t2_to_backend(
+            message,
+            gateway_received_at=gateway_received_at,
+            auth_status=auth_status,
+        )
+        payload_json = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        topic = d2t2_backend_topic(
+            message,
+            self.config.mqtt_topic_prefix,
+        )
+
+        queued = self.repository.queue_d2_message(
+            sms_id,
+            message,  # type: ignore[arg-type]
+            auth_status=auth_status.value,
+            topic=topic,
+            payload_json=payload_json,
+            qos=self.config.mqtt_qos,
+            retain=self.config.mqtt_retain,
+        )
+
+        if (
+            queued.disposition
+            is QueueDisposition.MESSAGE_ID_CONFLICT
+        ):
+            error = (
+                "MESSAGE_ID_CONFLICT:"
+                f"{queued.duplicate_of_sms_id}"
+            )
+            logger.warning(
+                "SMS_D2T2_MESSAGE_ID_CONFLICT sms_id=%s existing=%s",
+                sms_id,
+                queued.duplicate_of_sms_id,
+            )
+            return IngestionResult(
+                IngestionDisposition.INVALID,
+                sms_id=sms_id,
+                duplicate_of_sms_id=queued.duplicate_of_sms_id,
+                error=error,
+            )
+
+        if (
+            queued.disposition
+            is QueueDisposition.DUPLICATE_LOGICAL
+        ):
+            logger.info(
+                "SMS_D2T2_DUPLICATE_MESSAGE_ID sms_id=%s duplicate_of=%s",
+                sms_id,
+                queued.duplicate_of_sms_id,
+            )
+            return IngestionResult(
+                IngestionDisposition.DUPLICATE_LOGICAL,
+                sms_id=sms_id,
+                duplicate_of_sms_id=queued.duplicate_of_sms_id,
+            )
+
+        logger.info(
+            "MQTT_OUTBOX_CREATED sms_id=%s outbox_id=%s protocol=%s",
+            sms_id,
+            queued.outbox.id,
+            message.protocol_version,
+        )
+        return IngestionResult(
+            IngestionDisposition.QUEUED,
+            sms_id=sms_id,
+            outbox_id=queued.outbox.id,
+        )
+
