@@ -13,7 +13,7 @@ lecture SMS
       ↓
 persistance durable SQLite
       ↓
-dispatch D1 / D2T / D2E
+dispatch D1 / D2T / D2T2 / D2E
       ↓
 parsing / validation / sécurité
       ↓
@@ -37,14 +37,19 @@ Le projet doit rester focalisé sur la réception fiable des SMS, leur persistan
 
 ## SOURCE DE VÉRITÉ D2
 
-Le wire protocol D2 est défini par :
+Les contrats wire sont définis par :
 
 ```text
-docs/sms_protocol_v2.md
-tests/vectors/d2_conformance.json
+D2T / D2E:
+  docs/sms_protocol_v2.md
+  tests/vectors/d2_conformance.json
+
+D2T2:
+  docs/sms_protocol_d2t2.md
+  tests/vectors/d2t2_conformance.json
 ```
 
-D1 reste historique. Toute correction du contrat D2 doit aligner explicitement spécification, vecteurs, code et tests.
+D1 reste historique. D2T/D2E restent compatibles et inchangés. Toute correction d'un contrat doit aligner explicitement spécification, vecteurs, code et tests.
 
 Le récepteur réel est un SIM868 ; préserver le pilote historique SIM800 compatible au lieu de le réécrire uniquement pour son nom.
 
@@ -222,9 +227,9 @@ services/ingestion.py
 Responsable de :
 
 - persistance ;
-- dispatch D1/D2T/D2E ;
+- dispatch D1/D2T/D2T2/D2E ;
 - parsing/validation D1 ;
-- parsing/validation/sécurité D2 ;
+- parsing/validation/sécurité D2/D2T2 ;
 - normalisation ;
 - déduplication ;
 - création de l'outbox.
