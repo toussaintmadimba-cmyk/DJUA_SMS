@@ -40,7 +40,7 @@ SmsIngestionService
     |
     +--> SQLite inbound_sms
     +--> déduplication
-    +--> dispatch D1 / D2T / D2E
+    +--> dispatch D1 / D2T / D2T2 / D2E
     +--> parsing / validation / sécurité
     +--> normalisation backend
     +--> mqtt_outbox PENDING
@@ -70,7 +70,7 @@ CMGD n'attend pas MQTT.
 - [Règles du projet](AGENTS.md)
 - [Architecture](docs/architecture.md)
 - [Protocole SMS D1](docs/sms_protocol.md)
-- [Protocole SMS D2](docs/sms_protocol_v2.md)
+- [Protocole SMS D2](docs/sms_protocol_v2.md)\n- [Protocole SMS D2T2 compact + charge DC](docs/sms_protocol_d2t2.md)
 - [Contrat de données backend](docs/backend_data_contract.md)
 - [Transport GSM/SMS](docs/gsm_transport.md)
 - [Stockage SQLite](docs/storage.md)
@@ -139,7 +139,7 @@ FAIL  : 0
 SKIP  : 0
 ```
 
-Les tests historiques D1/GSM/MQTT restent verts ; la suite couvre désormais aussi D2T/D2E, HMAC, GSM-7, migration SQLite, déduplication/conflits et flux GSM/MQTT simulés.
+Les tests historiques D1/GSM/MQTT restent verts ; la suite couvre désormais aussi D2T/D2T2/D2E, HMAC, GSM-7, migration SQLite, déduplication/conflits et flux GSM/MQTT simulés.
 
 ## Diagnostics matériels
 
@@ -197,7 +197,7 @@ D2T, -> télémétrie périodique
 D2E, -> événement urgent GX/GE
 ```
 
-D2T contient exactement 22 champs et son maximum authentifié est 160 septets GSM-7. D2E contient 11 champs et son maximum est 97 septets.
+D2T contient exactement 22 champs et son maximum authentifié est 160 septets GSM-7. D2T2 conserve les mesures D2T, ajoute tension/courant/puissance/énergie de charge DC dans un payload compact de 60 octets, et son maximum authentifié est 130 septets. D2E contient 11 champs et son maximum est 97 septets.
 
 Le `message_id` est dérivé côté gateway sous la forme `D2:<device_id>:<sequence_base36>`. Un même message_id avec le même contenu signé est un replay ; avec un contenu signé différent, il devient `MESSAGE_ID_CONFLICT` et aucune seconde outbox n'est créée.
 
@@ -231,7 +231,7 @@ Au prochain logon Windows, la tâche relance automatiquement DJUA_SMS.
 Le lanceur permanent est \`scripts/run_gateway.py\` et réutilise directement :
 
 \`\`\`text
-SIM868 -> SmsReceiver -> SQLite -> D1/D2 -> mqtt_outbox -> MQTT
+SIM868 -> SmsReceiver -> SQLite -> D1/D2T/D2T2/D2E -> mqtt_outbox -> MQTT
 \`\`\`
 
 La console est masquée par \`start_djua_gateway_hidden.vbs\`. Le lanceur batch redémarre le processus après une erreur fatale avec un délai de 10 secondes.
