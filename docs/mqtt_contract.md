@@ -426,3 +426,44 @@ La validation D1 existante limite déjà `device_id` à `[A-Z0-9-]{1,32}`, ce qu
 Le Client ID de la gateway est indépendant de tous les `device_id` terrain.
 
 Pour QoS 1, le callback `on_publish` de Paho correspond au PUBACK reçu du broker ; la ligne SQLite n'est marquée `PUBLISHED` qu'à ce moment. La confirmation du broker ne constitue toujours pas une preuve que le backend a persisté le message.
+
+
+## 18. D2T2 compact
+
+**CHOIX D'ARCHITECTURE DJUA_SMS**
+
+D2T2 ne change pas le transport MQTT de la gateway. Après décodage du SMS compact, DJUA_SMS publie sur le topic télémétrie existant :
+
+```text
+djua/test/<device_id>/telemetry
+```
+
+Le payload MQTT reste un objet JSON lisible. Il conserve les groupes D2T `battery`, `solar` et `ac_load`, puis ajoute :
+
+```json
+"dc_load": {
+  "voltage_v": 12.35,
+  "current_a": 3.2,
+  "power_w": 39.5,
+  "energy_interval_wh": 19.76
+}
+```
+
+Le backend n'a pas à connaître le bit-packing ni la Base64URL du SMS D2T2. La gateway assume entièrement ce décodage avant création de l'outbox.
+
+D2T2 garde les propriétés MQTT de D2 :
+
+```text
+QoS    = 1
+retain = false
+```
+
+et le même identifiant d'idempotence :
+
+```text
+D2:<device_id>:<sequence_base36>
+```
+
+La séquence est partagée entre D2T, D2T2 et D2E.
+
+**À VALIDER END-TO-END** : le backend DJUA réel n'a pas encore été validé avec le nouveau groupe `dc_load`.
