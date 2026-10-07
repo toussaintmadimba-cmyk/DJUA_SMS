@@ -35,7 +35,7 @@ SmsReceiver
 SmsIngestionService
     |
     +--> inbound_sms
-    +--> dispatch D1 / D2T / D2E
+    +--> dispatch D1 / D2T / D2T2 / D2E
     +--> parsing / validation / sécurité
     +--> déduplication
     +--> normalizer
@@ -287,13 +287,7 @@ SMS réel              : NON TESTÉ
 backend end-to-end    : NON TESTÉ DANS CETTE PHASE
 ```
 
-Suite actuelle :
-
-```text
-208 PASS
-0 FAIL
-0 SKIP
-```
+Le nombre exact de tests doit être pris dans le dernier run CI, et non figé dans cette documentation.
 
 ## 13. Hors périmètre
 
@@ -310,17 +304,18 @@ Cette phase n'implémente pas :
 D2 réutilise `SmsReceiver`, `inbound_sms`, `mqtt_outbox`, le worker MQTT et le publisher existants.
 
 ```text
-D1  -> parser/validator/normalizer historique
-D2T -> codec D2 -> HMAC/binding -> telemetry
-D2E -> codec D2 -> HMAC/binding -> geofence/events
+D1   -> parser/validator/normalizer historique
+D2T  -> codec D2 legacy -> HMAC/binding -> telemetry
+D2T2 -> codec compact -> HMAC/binding -> telemetry + dc_load
+D2E  -> codec D2 -> HMAC/binding -> geofence/events
 ```
 
 Le schéma SQLite v2 ajoute `message_id`, `d2_content_hash`, `auth_status`, `security_status` et `conflict_with_sms_id` par migration additive.
 
-D2T publie sur `djua/test/<device_id>/telemetry`. D2E publie sur `djua/test/<device_id>/geofence/events`.
+D2T et D2T2 publient sur `djua/test/<device_id>/telemetry`. D2E publie sur `djua/test/<device_id>/geofence/events`. D2T2 réutilise le schéma SQLite v2 et l'outbox générique : aucune migration de base n'est nécessaire.
 
 `gateway_received_at` est l'heure UTC de la première ingestion locale durable et reste figée dans le payload de l'outbox pendant les retries.
 
 Le matériel récepteur est un SIM868. Les noms `Sim800Modem` restent historiques et sont conservés parce que la chaîne AT/SMS existante a déjà fonctionné avec ce SIM868.
 
-Les tests D2 GSM utilisent un modem simulé ; aucun nouveau test de vrai SMS D2 ou d'end-to-end backend réel n'est revendiqué.
+Les tests automatisés D2T2 utilisent un modem/MQTT simulés. Un vrai SMS D2E a été observé jusqu'au PUBACK broker sur le poste de test, mais aucun vrai SMS D2T2 ni end-to-end backend D2T2 n'est encore revendiqué.
