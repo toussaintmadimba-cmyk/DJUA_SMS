@@ -10,6 +10,8 @@ def detect_protocol(raw_message: str) -> str:
         return "D1"
     if raw_message.startswith("D2T,"):
         return "D2T"
+    if raw_message.startswith("D2T2,"):
+        return "D2T2"
     if raw_message.startswith("D2E,"):
         return "D2E"
     raise D2ProtocolError(
