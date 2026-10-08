@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 import json
 import os
 import re
+from urllib.parse import urlparse
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -28,6 +30,100 @@ def _env_int(name: str, default: int) -> int:
 def _env_float(name: str, default: float) -> float:
     raw = os.getenv(name)
     return default if raw is None or not raw.strip() else float(raw)
+
+
+class DeliveryMode(str, Enum):
+    MQTT_ONLY = "MQTT_ONLY"
+    HTTP_ONLY = "HTTP_ONLY"
+    MQTT_AND_HTTP = "MQTT_AND_HTTP"
+
+    @property
+    def mqtt_enabled(self) -> bool:
+        return self in {self.MQTT_ONLY, self.MQTT_AND_HTTP}
+
+    @property
+    def http_enabled(self) -> bool:
+        return self in {self.HTTP_ONLY, self.MQTT_AND_HTTP}
+
+    @classmethod
+    def from_env(cls) -> "DeliveryMode":
+        raw = os.getenv("DELIVERY_MODE", cls.MQTT_ONLY.value).strip().upper()
+        try:
+            return cls(raw)
+        except ValueError as exc:
+            allowed = ", ".join(item.value for item in cls)
+            raise ValueError(
+                f"DELIVERY_MODE must be one of: {allowed}"
+            ) from exc
+
+
+@dataclass(frozen=True)
+class HttpConfig:
+    backend_url: str
+    event_url: str | None = None
+    timeout_seconds: float = 10.0
+    retry_base_seconds: float = 2.0
+    retry_max_seconds: float = 300.0
+    api_key_header: str | None = "x-device-token"
+    api_key: str | None = None
+
+    def validate(self) -> "HttpConfig":
+        for name, value in (
+            ("HTTP_BACKEND_URL", self.backend_url),
+            ("HTTP_EVENT_URL", self.event_url or self.backend_url),
+        ):
+            parsed = urlparse(value.strip())
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError(
+                    f"{name} must be an absolute http:// or https:// URL"
+                )
+        if self.timeout_seconds <= 0:
+            raise ValueError("HTTP_TIMEOUT_SECONDS must be > 0")
+        if self.retry_base_seconds <= 0:
+            raise ValueError("HTTP_RETRY_BASE_SECONDS must be > 0")
+        if self.retry_max_seconds < self.retry_base_seconds:
+            raise ValueError(
+                "HTTP_RETRY_MAX_SECONDS must be >= HTTP_RETRY_BASE_SECONDS"
+            )
+        if self.api_key and not (self.api_key_header or "").strip():
+            raise ValueError(
+                "HTTP_API_KEY_HEADER is required when HTTP_API_KEY is set"
+            )
+        return self
+
+    @property
+    def normalized_backend_url(self) -> str:
+        return self.backend_url.strip()
+
+    @property
+    def normalized_event_url(self) -> str:
+        return (self.event_url or self.backend_url).strip()
+
+    @property
+    def headers(self) -> dict[str, str]:
+        if not self.api_key:
+            return {}
+        return {(self.api_key_header or "x-device-token").strip(): self.api_key}
+
+    @classmethod
+    def from_env(cls) -> "HttpConfig":
+        return cls(
+            backend_url=os.getenv("HTTP_BACKEND_URL", ""),
+            event_url=os.getenv("HTTP_EVENT_URL") or None,
+            timeout_seconds=_env_float("HTTP_TIMEOUT_SECONDS", 10.0),
+            retry_base_seconds=_env_float(
+                "HTTP_RETRY_BASE_SECONDS",
+                2.0,
+            ),
+            retry_max_seconds=_env_float(
+                "HTTP_RETRY_MAX_SECONDS",
+                300.0,
+            ),
+            api_key_header=(
+                os.getenv("HTTP_API_KEY_HEADER", "x-device-token") or None
+            ),
+            api_key=os.getenv("HTTP_API_KEY") or None,
+        ).validate()
 
 
 @dataclass(frozen=True)
@@ -319,12 +415,18 @@ class MqttConfig:
 @dataclass(frozen=True)
 class AppConfig:
     database_path: str = "data/djua_sms_gateway.db"
+    delivery_mode: DeliveryMode = DeliveryMode.MQTT_ONLY
+    http: HttpConfig | None = None
 
     @classmethod
     def from_env(cls) -> "AppConfig":
+        mode = DeliveryMode.from_env()
+        http = HttpConfig.from_env() if mode.http_enabled else None
         return cls(
             database_path=os.getenv(
                 "DATABASE_PATH",
                 "data/djua_sms_gateway.db",
-            )
+            ),
+            delivery_mode=mode,
+            http=http,
         )
