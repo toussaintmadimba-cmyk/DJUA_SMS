@@ -1,6 +1,6 @@
 # DJUA_SMS
 
-Passerelle **SMS -> SQLite -> MQTT** du projet DJUA.
+Passerelle **SMS -> SQLite -> MQTT / HTTP** du projet DJUA.
 
 ## Règle absolue
 
@@ -44,15 +44,17 @@ SmsIngestionService
     +--> parsing / validation / sécurité
     +--> normalisation backend
     +--> mqtt_outbox PENDING
-    |
-    v
-MqttOutboxWorker
-    |
-    v
-MQTT QoS 1 / PUBACK
-    |
-    v
-backend DJUA
+    +--> http_outbox PENDING
+          |              |
+          v              v
+   MqttOutboxWorker  HttpOutboxWorker
+          |              |
+          v              v
+       MQTT QoS 1     HTTP POST
+          \              /
+           \            /
+            v          v
+             backend DJUA
 ```
 
 La règle de non-perte côté modem est :
@@ -77,6 +79,7 @@ CMGD n'attend pas MQTT.
 - [Fiabilité et reprise](docs/reliability.md)
 - [Contrat MQTT](docs/mqtt_contract.md)
 - [Transport MQTT](docs/mqtt_transport.md)
+- [Transport HTTP configurable](docs/http_transport.md)
 
 ## Composants implémentés
 
@@ -90,15 +93,16 @@ CMGD n'attend pas MQTT.
    - `inbound_sms` ;
    - déduplication brute et logique ;
    - `mqtt_outbox` persistante ;
+   - `http_outbox` persistante ;
    - recovery.
 
-3. **MQTT**
-   - `paho-mqtt==2.1.0` ;
-   - QoS 1 ;
-   - mapping `mid -> outbox_id` ;
-   - PUBACK ;
-   - retry/backoff ;
-   - reconnexion.
+3. **Sorties backend**
+   - mode `MQTT_ONLY`, `HTTP_ONLY` ou `MQTT_AND_HTTP` ;
+   - MQTT via `paho-mqtt==2.1.0`, QoS 1 et PUBACK ;
+   - HTTP POST via la bibliothèque standard Python ;
+   - outboxes SQLite indépendantes ;
+   - retry/backoff persistant ;
+   - même payload backend normalisé sur les deux transports.
 
 4. **GSM/SMS récepteur**
    - `pyserial==3.5` ;
@@ -178,6 +182,18 @@ Ne pas commencer automatiquement :
 
 Attendre une autorisation explicite pour l'étape suivante.
 
+## Configuration des sorties
+
+```text
+DELIVERY_MODE=MQTT_ONLY
+DELIVERY_MODE=HTTP_ONLY
+DELIVERY_MODE=MQTT_AND_HTTP
+```
+
+`MQTT_ONLY` conserve le comportement historique. `HTTP_ONLY` ne nécessite pas de broker MQTT. `MQTT_AND_HTTP` crée les deux livraisons persistantes à partir du même SMS validé.
+
+Voir [Transport HTTP configurable](docs/http_transport.md).
+
 ## D2T / D2T2 / D2E
 
 D2 étend la gateway existante ; il ne crée pas une deuxième chaîne de réception.
@@ -223,12 +239,12 @@ Au prochain logon Windows, la tâche relance automatiquement DJUA_SMS.
 Le lanceur permanent est \`scripts/run_gateway.py\` et réutilise directement :
 
 \`\`\`text
-SIM868 -> SmsReceiver -> SQLite -> D1/D2T/D2T2/D2E -> mqtt_outbox -> MQTT
+SIM868 -> SmsReceiver -> SQLite -> D1/D2T/D2T2/D2E -> MQTT et/ou HTTP
 \`\`\`
 
 La console est masquée par \`start_djua_gateway_hidden.vbs\`. Le lanceur batch redémarre le processus après une erreur fatale avec un délai de 10 secondes.
 
-La configuration locale est \`config/gateway.env\`. Le modèle propose déjà \`COM16\`, 9600 bauds et \`D2_AUTH_MODE=development\`. \`MQTT_HOST\` doit être renseigné avec le broker utilisé pour les essais.
+La configuration locale est \`config/gateway.env\`. Le modèle propose déjà \`COM16\`, 9600 bauds, \`D2_AUTH_MODE=development\` et \`DELIVERY_MODE=MQTT_ONLY\`. Selon le mode choisi, renseigner \`MQTT_HOST\`, \`HTTP_BACKEND_URL\`, ou les deux.
 
 Les logs sont écrits dans \`logs/gateway.log\`, avec rotation à 5 MiB et cinq sauvegardes.
 
