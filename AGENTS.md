@@ -19,9 +19,9 @@ parsing / validation / sécurité
       ↓
 normalisation
       ↓
-MQTT outbox persistante
+outbox(es) persistante(s)
       ↓
-publication MQTT
+publication MQTT et/ou HTTP
 ```
 
 `DJUA_SMS` n'est pas :
@@ -32,7 +32,7 @@ publication MQTT
 - un moteur de maintenance prédictive ;
 - un système d'analyse énergétique métier.
 
-Le projet doit rester focalisé sur la réception fiable des SMS, leur persistance, leur transformation selon le protocole D1 et leur transmission MQTT.
+Le projet doit rester focalisé sur la réception fiable des SMS, leur persistance, leur transformation selon les protocoles supportés et leur livraison backend par les transports configurés (MQTT et/ou HTTP).
 
 
 ## SOURCE DE VÉRITÉ D2
@@ -232,13 +232,19 @@ Responsable de :
 - parsing/validation/sécurité D2/D2T2 ;
 - normalisation ;
 - déduplication ;
-- création de l'outbox.
+- création atomique des outboxes de livraison configurées.
 
 ```text
 mqtt/
 ```
 
 Responsable du transport MQTT.
+
+```text
+http_delivery.py
+```
+
+Responsable du POST HTTP, des retries HTTP et du drainage de `http_outbox`.
 
 ```text
 services/gateway.py
