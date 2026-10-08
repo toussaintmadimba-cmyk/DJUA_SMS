@@ -6,6 +6,7 @@ import logging
 import time
 
 from djua_sms_gateway.gsm.modem import Sim800Modem
+from djua_sms_gateway.http_delivery import HttpOutboxWorker
 from djua_sms_gateway.gsm.serial_transport import SerialTransportError
 from djua_sms_gateway.gsm.sms_receiver import SmsReceiver
 from djua_sms_gateway.services.outbox_worker import MqttOutboxWorker
@@ -19,6 +20,7 @@ class DjuaSmsGateway:
         modem: Sim800Modem,
         sms_receiver: SmsReceiver,
         outbox_worker: MqttOutboxWorker | None = None,
+        http_outbox_worker: HttpOutboxWorker | None = None,
         *,
         reconnect_seconds: float = 5.0,
         sleep=time.sleep,
@@ -28,6 +30,8 @@ class DjuaSmsGateway:
         self.modem = modem
         self.sms_receiver = sms_receiver
         self.outbox_worker = outbox_worker
+        self.http_outbox_worker = http_outbox_worker
+        self.last_http_result = None
         self.reconnect_seconds = reconnect_seconds
         self._sleep = sleep
         self._started = False
@@ -62,6 +66,13 @@ class DjuaSmsGateway:
         mqtt_result = None
         if self.outbox_worker is not None:
             mqtt_result = self.outbox_worker.run_once(limit=mqtt_limit)
+
+        self.last_http_result = None
+        if self.http_outbox_worker is not None:
+            # One HTTP request per gateway cycle keeps a slow endpoint from
+            # monopolizing the GSM receive loop.
+            self.last_http_result = self.http_outbox_worker.run_once(limit=1)
+
         return receive_result, mqtt_result
 
     def reconnect_modem(self):
@@ -112,4 +123,6 @@ class DjuaSmsGateway:
         finally:
             if self.outbox_worker is not None:
                 self.outbox_worker.shutdown()
+            if self.http_outbox_worker is not None:
+                self.http_outbox_worker.shutdown()
         self._started = False
