@@ -2,7 +2,7 @@
 
 ## 1. Objet du document
 
-Ce document définit le **contrat de données que l'équipe backend doit recevoir depuis DJUA_SMS via MQTT**.
+Ce document définit le **contrat de données que l'équipe backend doit recevoir depuis DJUA_SMS**. La gateway peut maintenant livrer ce même payload normalisé par MQTT, par HTTP, ou par les deux.
 
 Il décrit uniquement le payload réellement produit aujourd'hui par la gateway et les règles nécessaires pour l'interpréter correctement.
 
@@ -12,50 +12,60 @@ Source de vérité actuelle :
 DJUA_SMS
 → protocol/normalizer.py
 → services/ingestion.py
-→ mqtt_outbox
-→ MQTT
+→ mqtt_outbox -> MQTT
+  et/ou
+→ http_outbox -> HTTP POST
 ```
 
 Le dépôt firmware `DJUA` reste une référence historique du contrat mais n'est pas modifié par DJUA_SMS.
 
 ---
 
-## 2. Canal de transport
+## 2. Canaux de transport
 
-### Topic télémétrie
+Le transport de sortie est sélectionné par :
 
-Format :
+```text
+DELIVERY_MODE=MQTT_ONLY
+DELIVERY_MODE=HTTP_ONLY
+DELIVERY_MODE=MQTT_AND_HTTP
+```
+
+Le **payload JSON métier est identique** pour les deux transports.
+
+### MQTT
+
+Topic télémétrie :
 
 ```text
 djua/test/<device_id>/telemetry
 ```
 
-Exemple :
-
-```text
-djua/test/DJUA-KIN-000001/telemetry
-```
-
-Le préfixe `djua/test` est configurable dans DJUA_SMS, mais il constitue la valeur de compatibilité actuelle.
-
-### MQTT
-
-Valeurs utilisées par DJUA_SMS :
+Valeurs :
 
 ```text
 QoS    = 1
 retain = false
 ```
 
-Conséquence importante :
+QoS 1 fournit une livraison at least once et non exactly once.
+
+### HTTP
+
+DJUA_SMS effectue un POST du même `payload_json` vers `HTTP_BACKEND_URL`.
+
+En-têtes de base :
 
 ```text
-QoS 1 = livraison at least once
+Content-Type: application/json
+Accept: application/json
 ```
 
-Un même message peut donc être publié plus d'une fois dans certains scénarios de panne.
+Une clé API optionnelle peut être ajoutée avec `HTTP_API_KEY_HEADER` / `HTTP_API_KEY`.
 
-Le backend ne doit pas considérer MQTT QoS 1 comme une garantie `exactly once`.
+D2E peut utiliser `HTTP_EVENT_URL`; s'il n'est pas configuré, il utilise `HTTP_BACKEND_URL`.
+
+Une réponse 2xx confirme la livraison HTTP. Les erreurs réseau, 408/425/429 et 5xx sont retentées à partir de l'outbox persistante.
 
 ---
 
@@ -484,40 +494,32 @@ Cela signifie notamment que :
 
 ## 13. Sémantique de livraison
 
-Pipeline réel :
+Après validation, SQLite crée les outboxes correspondant au mode configuré.
 
 ```text
-SMS reçu
-→ SQLite durable
-→ mqtt_outbox PENDING
-→ publication MQTT
-→ PUBACK broker
-→ mqtt_outbox PUBLISHED
+MQTT_ONLY
+-> mqtt_outbox PENDING
+-> PUBACK
+-> mqtt_outbox PUBLISHED
+
+HTTP_ONLY
+-> http_outbox PENDING
+-> HTTP 2xx
+-> http_outbox PUBLISHED
+
+MQTT_AND_HTTP
+-> les deux outboxes PENDING
+-> chaque transport progresse indépendamment
+-> inbound_sms PUBLISHED lorsque les deux sont PUBLISHED
 ```
 
-La confirmation :
-
-```text
-PUBLISHED
-```
-
-signifie :
-
-```text
-le broker MQTT a accusé réception
-```
-
-Elle ne signifie pas :
-
-```text
-le backend métier a persisté ou traité le message
-```
+Un PUBACK signifie que le broker a accepté le message MQTT. Un 2xx signifie que l'endpoint HTTP a accepté la requête. Aucun de ces accusés ne prouve, à lui seul, qu'un traitement métier durable ultérieur a été achevé.
 
 ---
 
 ## 14. Doublons possibles côté backend
 
-MQTT QoS 1 fournit une garantie **at least once**.
+MQTT QoS 1 fournit une garantie **at least once**. HTTP possède également des retries persistants ; un crash autour d'une réponse HTTP réussie peut donc produire une nouvelle tentative.
 
 Scénario possible :
 
@@ -530,7 +532,7 @@ gateway publie
 → republication
 ```
 
-Le backend doit donc être préparé à recevoir occasionnellement deux payloads identiques ou équivalents.
+Le backend doit donc être préparé à recevoir occasionnellement deux payloads identiques ou équivalents. En `MQTT_AND_HTTP`, si les deux transports convergent vers le même système métier, le même message logique peut aussi arriver une fois par transport.
 
 ### Limitation actuelle
 
@@ -699,9 +701,10 @@ TOPIC
 djua/test/<kit_id>/telemetry
 
 DELIVERY
-QoS 1
-retain false
-at least once
+MQTT et/ou HTTP selon DELIVERY_MODE
+MQTT : QoS 1, retain false
+HTTP : POST JSON, succès sur 2xx
+retries persistants
 
 IDENTITÉ
 kit_id = identifiant boîtier
@@ -766,6 +769,7 @@ protocol/models.py
 protocol/normalizer.py
 services/ingestion.py
 mqtt_outbox
+http_outbox
 ```
 
 Les comportements essentiels sont couverts par les tests automatisés existants, notamment :
@@ -910,4 +914,4 @@ D2E  -> inchangé
 
 Le backend n'a jamais à décoder le payload Base64URL compact : cette responsabilité appartient à DJUA_SMS.
 
-**La compatibilité du backend réel avec le JSON D2T2 et le nouveau bloc dc_load reste à valider end-to-end.**
+**Le JSON D2T2 et le bloc dc_load ont été validés end-to-end via la sortie MQTT jusqu'à l'API FastAPI de test. La nouvelle sortie HTTP de DJUA_SMS reste à valider contre l'endpoint HTTP cible réel.**
