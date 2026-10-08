@@ -8,10 +8,7 @@
 CAPTEURS DJUA
     |
     v
-ESP32
-    |
-    v
-SIM800L émetteur
+ESP32 + modem GSM émetteur
     |
     v
 SMS / réseau GSM
@@ -38,40 +35,33 @@ SmsIngestionService
     +--> dispatch D1 / D2T / D2T2 / D2E
     +--> parsing / validation / sécurité
     +--> déduplication
-    +--> normalizer
-    +--> mqtt_outbox PENDING
+    +--> normalisation backend
     |
-    v
-MqttOutboxWorker
+    +--> mqtt_outbox PENDING --> MqttOutboxWorker --> MQTT QoS 1 --> broker
     |
-    v
-PahoMqttClient
-    |
-    v
-broker
-    |
-    v
-backend DJUA
+    +--> http_outbox PENDING --> HttpOutboxWorker --> HTTP POST
+                                              |
+                                              v
+                                         backend DJUA
 ```
 
-Le boîtier terrain cible SMS comme transport. DJUA_SMS transforme ensuite le SMS en contrat MQTT compatible.
+La sortie backend est configurable :
+
+```text
+MQTT_ONLY
+HTTP_ONLY
+MQTT_AND_HTTP
+```
+
+Le boîtier terrain continue d'utiliser le SMS comme transport vers la gateway. Le choix MQTT/HTTP concerne uniquement la sortie de **DJUA_SMS vers le backend**.
 
 ## 2. DJUA comme référence
 
-Le dépôt DJUA peut être lu pour comprendre :
-
-- le contrat de télémétrie ;
-- les topics ;
-- les noms de champs ;
-- les unités.
-
-Il n'est jamais modifié par ce projet.
+Le dépôt DJUA peut être lu pour comprendre le contrat historique, les noms de champs et les unités. Il n'est jamais modifié par ce projet.
 
 ## 3. Couche GSM
 
 ### serial_transport
-
-**TESTÉ AUTOMATIQUEMENT**
 
 Responsable uniquement du port série :
 
@@ -85,11 +75,9 @@ buffers
 reconnect
 ```
 
-Il ne connaît ni SMS, ni D1, ni SQLite, ni MQTT.
+Il ne connaît ni SMS, ni protocole métier, ni SQLite, ni MQTT/HTTP.
 
 ### at_protocol
-
-**TESTÉ AUTOMATIQUEMENT**
 
 Responsable de :
 
@@ -108,9 +96,7 @@ Les notifications `+CMTI` intercalées pendant une commande sont conservées.
 
 ### modem
 
-**TESTÉ AUTOMATIQUEMENT avec transport simulé**
-
-Responsable de :
+Responsable de l'initialisation et des opérations haut niveau :
 
 - AT ;
 - CMEE ;
@@ -125,11 +111,9 @@ Responsable de :
 - CMGL ;
 - CMGD.
 
-Le comportement physique du SIM800L reste **À VALIDER AVEC SIM800L RÉEL**.
+Le nom `Sim800Modem` est historique ; le récepteur matériel utilisé par le projet est un SIM868.
 
 ### sms_receiver
-
-**TESTÉ AUTOMATIQUEMENT**
 
 Pipeline :
 
@@ -147,7 +131,7 @@ Il ne manipule pas directement les tables SQLite.
 
 ## 4. Frontière de non-perte
 
-La première frontière est :
+La première frontière reste :
 
 ```text
 SMS brut
@@ -155,34 +139,36 @@ SMS brut
 -> COMMIT
 ```
 
-Pour un D1 valide, l'ingestion ajoute atomiquement :
+Pour un SMS valide, l'ingestion réalise ensuite atomiquement :
 
 ```text
 inbound_sms = QUEUED
 +
-mqtt_outbox = PENDING
+outbox(es) activée(s) = PENDING
 ```
 
-Le receiver n'exécute `AT+CMGD=<index>` qu'après le retour durable de l'ingestion.
+Selon `DELIVERY_MODE`, la même transaction crée :
 
-Une panne SQLite interdit donc la suppression modem.
+```text
+MQTT_ONLY      -> mqtt_outbox
+HTTP_ONLY      -> http_outbox
+MQTT_AND_HTTP  -> mqtt_outbox + http_outbox
+```
 
-## 5. CMGD et MQTT sont indépendants
+Le receiver n'exécute `AT+CMGD=<index>` qu'après le retour durable de l'ingestion. Une panne SQLite interdit donc la suppression modem.
+
+## 5. CMGD et sorties réseau sont indépendants
 
 ```text
 SMS
 -> SQLite durable
 -> CMGD
--> MQTT plus tard
+-> livraison réseau plus tard
 ```
 
-CMGD n'attend pas PUBACK.
-
-Une coupure Internet ne force donc pas le SIM800L à conserver indéfiniment un SMS déjà archivé localement.
+CMGD n'attend ni PUBACK MQTT ni réponse HTTP 2xx. Une coupure Internet ne force donc pas le SIM868 à conserver un SMS déjà archivé localement.
 
 ## 6. Déduplication et crash avant CMGD
-
-Scénario :
 
 ```text
 SQLite COMMIT
@@ -191,11 +177,11 @@ SQLite COMMIT
 -> redémarrage
 -> SMS relu
 -> DUPLICATE_RAW
--> aucune seconde outbox
+-> aucune seconde paire d'outboxes
 -> CMGD autorisé
 ```
 
-Ce scénario est testé.
+La déduplication logique D2 repose sur `message_id` et le hash du contenu signé ; D1 conserve sa déduplication historique.
 
 ## 7. Startup recovery
 
@@ -205,11 +191,7 @@ Après initialisation modem :
 AT+CMGL="ALL"
 ```
 
-récupère les SMS déjà stockés.
-
-Ils passent par exactement le même `SmsReceiver`.
-
-La gateway ne dépend donc pas seulement des notifications reçues en temps réel.
+récupère les SMS déjà stockés. Ils passent par le même `SmsReceiver`.
 
 ## 8. Déconnexion série
 
@@ -236,15 +218,12 @@ afin de ne pas supposer que les réglages du modem ont survécu.
 
 - `Sim800Modem` ;
 - `SmsReceiver` ;
-- `MqttOutboxWorker`.
+- `MqttOutboxWorker` lorsque MQTT est activé ;
+- `HttpOutboxWorker` lorsque HTTP est activé.
 
-Il ne réimplémente pas leur logique métier.
+L'orchestrateur ne réimplémente pas le parsing, la persistance ou les transports.
 
-La V1 GSM reste synchrone.
-
-## 10. MQTT
-
-Le transport MQTT reste :
+## 10. Sortie MQTT
 
 ```text
 mqtt_outbox PENDING
@@ -252,56 +231,49 @@ mqtt_outbox PENDING
 -> QoS 1
 -> mid
 -> PUBACK
--> mark_outbox_published()
+-> mqtt_outbox PUBLISHED
 ```
 
-Garantie :
+Garantie : **at least once**, pas exactly-once end-to-end.
+
+## 11. Sortie HTTP
 
 ```text
-at least once
+http_outbox PENDING
+-> POST exact payload_json
+-> réponse HTTP
+-> 2xx : http_outbox PUBLISHED
+-> 408/425/429/5xx ou erreur réseau : retry
+-> autre 4xx : FAILED terminal
 ```
 
-et non exactly-once end-to-end.
+Le retry utilise un backoff exponentiel plafonné. Le payload durable n'est pas recalculé pendant les retries.
 
-## 11. Multi-device
+En mode double, `inbound_sms` devient `PUBLISHED` seulement lorsque les deux outboxes existantes sont `PUBLISHED`.
 
-Le même récepteur peut ingérer plusieurs :
+## 12. Multi-device
+
+Le même récepteur peut ingérer plusieurs devices. Le numéro expéditeur GSM reste distinct du `device_id`. Pour D2 en production, la liaison E.164 sender <-> device_id est vérifiée après le HMAC.
+
+## 13. Schéma SQLite
+
+Historique :
 
 ```text
-DJUA-KIN-000001
-DJUA-KIN-000002
-DJUA-KIN-000003
+v1 -> base D1 + mqtt_outbox
+v2 -> métadonnées D2 :
+      message_id
+      d2_content_hash
+      auth_status
+      security_status
+      conflict_with_sms_id
+
+v3 -> ajout de http_outbox
 ```
 
-Le numéro expéditeur GSM reste distinct du `device_id`. Pour D2 en production, la liaison E.164 sender <-> device_id est configurée et vérifiée après le HMAC.
-
-## 12. État de validation
-
-```text
-D1                    : TESTÉ AUTOMATIQUEMENT
-SQLite                : TESTÉ AUTOMATIQUEMENT
-MQTT logique          : TESTÉ AUTOMATIQUEMENT
-GSM/AT simulé         : TESTÉ AUTOMATIQUEMENT
-SIM868 récepteur      : MATÉRIEL CONFIRMÉ PAR LE PROJET
-SMS réel              : NON TESTÉ
-backend end-to-end    : NON TESTÉ DANS CETTE PHASE
-```
-
-Le nombre exact de tests doit être pris dans le dernier run CI, et non figé dans cette documentation.
-
-## 13. Hors périmètre
-
-Cette phase n'implémente pas :
-
-- émetteur SMS ESP32 ;
-- modification du firmware DJUA ;
-- modification D1 ;
-- service Windows ;
-- Docker.
+La migration v2 -> v3 est additive et ne modifie pas les lignes MQTT existantes.
 
 ## 14. Extension D2
-
-D2 réutilise `SmsReceiver`, `inbound_sms`, `mqtt_outbox`, le worker MQTT et le publisher existants.
 
 ```text
 D1   -> parser/validator/normalizer historique
@@ -310,12 +282,28 @@ D2T2 -> codec compact -> HMAC/binding -> telemetry + dc_load
 D2E  -> codec D2 -> HMAC/binding -> geofence/events
 ```
 
-Le schéma SQLite v2 ajoute `message_id`, `d2_content_hash`, `auth_status`, `security_status` et `conflict_with_sms_id` par migration additive.
+D2T et D2T2 utilisent le canal télémétrie MQTT lorsqu'il est activé. D2E utilise le canal événement MQTT. Pour HTTP, la télémétrie utilise `HTTP_BACKEND_URL` et D2E peut utiliser `HTTP_EVENT_URL`.
 
-D2T et D2T2 publient sur `djua/test/<device_id>/telemetry`. D2E publie sur `djua/test/<device_id>/geofence/events`. D2T2 réutilise le schéma SQLite v2 et l'outbox générique : aucune migration de base n'est nécessaire.
+`gateway_received_at` est l'heure UTC de la première ingestion locale durable et reste figée dans le payload pendant les retries.
 
-`gateway_received_at` est l'heure UTC de la première ingestion locale durable et reste figée dans le payload de l'outbox pendant les retries.
+## 15. État de validation
 
-Le matériel récepteur est un SIM868. Les noms `Sim800Modem` restent historiques et sont conservés parce que la chaîne AT/SMS existante a déjà fonctionné avec ce SIM868.
+État déjà observé sur le poste physique avant l'ajout HTTP :
 
-Les tests automatisés D2T2 utilisent un modem/MQTT simulés. Un vrai SMS D2E a été observé jusqu'au PUBACK broker sur le poste de test, mais aucun vrai SMS D2T2 ni end-to-end backend D2T2 n'est encore revendiqué.
+```text
+SIM868 réel                          : VALIDÉ
+vrai SMS D2T2                       : VALIDÉ
+SMS -> SQLite -> MQTT PUBACK         : VALIDÉ
+MQTT -> API FastAPI -> D2T2/DC LOAD : VALIDÉ en environnement de test
+```
+
+L'authentification du test D2T2 était en mode développement. Le backend FastAPI de test stocke en mémoire.
+
+Pour la nouvelle sortie HTTP :
+
+```text
+configuration / outbox / retries / mode double : couverts par tests automatisés ajoutés
+POST HTTP matériel/réseau réel                 : à valider séparément
+```
+
+Le résultat exact de la suite doit toujours être pris dans le dernier run CI ; aucun compteur statique n'est une preuve permanente.
