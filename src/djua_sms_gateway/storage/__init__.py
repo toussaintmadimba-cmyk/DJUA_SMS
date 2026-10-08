@@ -2,6 +2,7 @@
 
 from .database import Database, SCHEMA_VERSION
 from .models import (
+    HttpOutboxRecord,
     InboundSmsRecord,
     InboundStatus,
     OutboxRecord,
@@ -20,6 +21,7 @@ from .repository import (
 __all__ = [
     "Database",
     "SCHEMA_VERSION",
+    "HttpOutboxRecord",
     "InboundSmsRecord",
     "InboundStatus",
     "OutboxRecord",
