@@ -22,6 +22,11 @@ from djua_sms_gateway.gsm.at_protocol import AtProtocol
 from djua_sms_gateway.gsm.modem import Sim800Modem
 from djua_sms_gateway.gsm.serial_transport import PySerialTransport
 from djua_sms_gateway.gsm.sms_receiver import SmsReceiver
+from djua_sms_gateway.http_delivery import (
+    HttpOutboxWorker,
+    HttpPublisher,
+    UrllibHttpTransport,
+)
 from djua_sms_gateway.mqtt.client import PahoMqttClient
 from djua_sms_gateway.mqtt.publisher import MqttPublisher
 from djua_sms_gateway.services.gateway import DjuaSmsGateway
@@ -126,24 +131,29 @@ def configure_logging() -> Path:
 def load_runtime_configs():
     app = AppConfig.from_env()
     gsm = GsmConfig.from_env()
-    mqtt = MqttConfig.from_env()
+    mqtt = (
+        MqttConfig.from_env()
+        if app.delivery_mode.mqtt_enabled
+        else None
+    )
     security = D2SecurityConfig.from_env()
 
-    host = mqtt.host.strip()
-    if host.upper() in {
-        "CHANGE_ME",
-        "TODO",
-        "BROKER_A_CONFIGURER",
-    }:
-        raise ValueError(
-            "MQTT_HOST still contains a placeholder; edit config/gateway.env"
-        )
-    if host.isdigit():
-        raise ValueError(
-            "MQTT_HOST looks like a port number. Put the broker address "
-            "in MQTT_HOST (for example 127.0.0.1 or a hostname) and the "
-            "port in MQTT_PORT."
-        )
+    if mqtt is not None:
+        host = mqtt.host.strip()
+        if host.upper() in {
+            "CHANGE_ME",
+            "TODO",
+            "BROKER_A_CONFIGURER",
+        }:
+            raise ValueError(
+                "MQTT_HOST still contains a placeholder; edit config/gateway.env"
+            )
+        if host.isdigit():
+            raise ValueError(
+                "MQTT_HOST looks like a port number. Put the broker address "
+                "in MQTT_HOST (for example 127.0.0.1 or a hostname) and the "
+                "port in MQTT_PORT."
+            )
 
     return app, gsm, mqtt, security
 
@@ -151,7 +161,7 @@ def load_runtime_configs():
 def build_gateway(
     app: AppConfig,
     gsm: GsmConfig,
-    mqtt: MqttConfig,
+    mqtt: MqttConfig | None,
     security: D2SecurityConfig,
 ) -> DjuaSmsGateway:
     database_path = Path(app.database_path)
@@ -173,31 +183,66 @@ def build_gateway(
         cnmi=gsm.cnmi,
     )
 
+    topic_prefix = (
+        mqtt.normalized_topic_prefix
+        if mqtt is not None
+        else (os.getenv("MQTT_TOPIC_PREFIX", "djua/test").strip().strip("/") or "djua/test")
+    )
     ingestion = SmsIngestionService(
         repository,
         IngestionConfig(
-            mqtt_topic_prefix=mqtt.normalized_topic_prefix,
-            mqtt_qos=mqtt.qos,
-            mqtt_retain=mqtt.retain,
+            mqtt_topic_prefix=topic_prefix,
+            mqtt_qos=mqtt.qos if mqtt is not None else 1,
+            mqtt_retain=mqtt.retain if mqtt is not None else False,
+            delivery_mode=app.delivery_mode,
+            http_telemetry_url=(
+                app.http.normalized_backend_url
+                if app.http is not None
+                else None
+            ),
+            http_event_url=(
+                app.http.normalized_event_url
+                if app.http is not None
+                else None
+            ),
         ),
         d2_security=security,
     )
     receiver = SmsReceiver(modem, ingestion)
 
-    mqtt_client = PahoMqttClient(mqtt)
-    publisher = MqttPublisher(
-        mqtt_client,
-        repository,
-        publish_timeout_seconds=mqtt.publish_timeout_seconds,
-        retry_base_seconds=mqtt.retry_base_seconds,
-        retry_max_seconds=mqtt.retry_max_seconds,
-    )
-    worker = MqttOutboxWorker(repository, mqtt_client, publisher)
+    mqtt_worker = None
+    if mqtt is not None:
+        mqtt_client = PahoMqttClient(mqtt)
+        publisher = MqttPublisher(
+            mqtt_client,
+            repository,
+            publish_timeout_seconds=mqtt.publish_timeout_seconds,
+            retry_base_seconds=mqtt.retry_base_seconds,
+            retry_max_seconds=mqtt.retry_max_seconds,
+        )
+        mqtt_worker = MqttOutboxWorker(
+            repository,
+            mqtt_client,
+            publisher,
+        )
+
+    http_worker = None
+    if app.http is not None:
+        http_publisher = HttpPublisher(
+            UrllibHttpTransport(),
+            repository,
+            headers=app.http.headers,
+            timeout_seconds=app.http.timeout_seconds,
+            retry_base_seconds=app.http.retry_base_seconds,
+            retry_max_seconds=app.http.retry_max_seconds,
+        )
+        http_worker = HttpOutboxWorker(repository, http_publisher)
 
     return DjuaSmsGateway(
         modem,
         receiver,
-        worker,
+        mqtt_worker,
+        http_worker,
         reconnect_seconds=gsm.reconnect_seconds,
     )
 
@@ -258,8 +303,17 @@ def main(argv=None) -> int:
     if args.check_config:
         print("CONFIG_OK")
         print(f"SERIAL_PORT={gsm.serial_port}")
-        print(f"MQTT_HOST={mqtt.host}")
-        print(f"MQTT_TOPIC_PREFIX={mqtt.normalized_topic_prefix}")
+        print(f"DELIVERY_MODE={app.delivery_mode.value}")
+        if mqtt is not None:
+            print(f"MQTT_HOST={mqtt.host}")
+            print(f"MQTT_TOPIC_PREFIX={mqtt.normalized_topic_prefix}")
+        else:
+            print("MQTT=DISABLED")
+        if app.http is not None:
+            print(f"HTTP_BACKEND_URL={app.http.normalized_backend_url}")
+            print(f"HTTP_EVENT_URL={app.http.normalized_event_url}")
+        else:
+            print("HTTP=DISABLED")
         print(f"D2_AUTH_MODE={security.mode}")
         print(f"DATABASE_PATH={app.database_path}")
         print(f"LOG_PATH={log_path}")
@@ -280,9 +334,15 @@ def main(argv=None) -> int:
         _start_stop_file_watcher(gateway, stop_file)
 
         logger.info(
-            "GATEWAY_PROCESS_START serial_port=%s mqtt_host=%s d2_mode=%s",
+            "GATEWAY_PROCESS_START serial_port=%s delivery_mode=%s mqtt_host=%s http_url=%s d2_mode=%s",
             gsm.serial_port,
-            mqtt.host,
+            app.delivery_mode.value,
+            mqtt.host if mqtt is not None else "disabled",
+            (
+                app.http.normalized_backend_url
+                if app.http is not None
+                else "disabled"
+            ),
             security.mode,
         )
         gateway.run_forever()
