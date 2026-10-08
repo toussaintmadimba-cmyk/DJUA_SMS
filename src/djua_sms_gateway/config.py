@@ -39,11 +39,17 @@ class DeliveryMode(str, Enum):
 
     @property
     def mqtt_enabled(self) -> bool:
-        return self in {self.MQTT_ONLY, self.MQTT_AND_HTTP}
+        return self in {
+            DeliveryMode.MQTT_ONLY,
+            DeliveryMode.MQTT_AND_HTTP,
+        }
 
     @property
     def http_enabled(self) -> bool:
-        return self in {self.HTTP_ONLY, self.MQTT_AND_HTTP}
+        return self in {
+            DeliveryMode.HTTP_ONLY,
+            DeliveryMode.MQTT_AND_HTTP,
+        }
 
     @classmethod
     def from_env(cls) -> "DeliveryMode":
