@@ -83,6 +83,21 @@ class OutboxRecord:
 
 
 @dataclass(frozen=True)
+class HttpOutboxRecord:
+    id: int
+    sms_id: int
+    url: str
+    payload_json: str
+    status: OutboxStatus
+    attempt_count: int
+    next_attempt_at: str | None
+    last_error: str | None
+    created_at: str
+    updated_at: str
+    published_at: str | None
+
+
+@dataclass(frozen=True)
 class StoreRawSmsResult:
     disposition: StoreDisposition
     record: InboundSmsRecord
@@ -98,3 +113,4 @@ class QueueResult:
     sms_id: int
     outbox: OutboxRecord | None
     duplicate_of_sms_id: int | None = None
+    http_outbox: HttpOutboxRecord | None = None
