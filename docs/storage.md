@@ -1,68 +1,72 @@
-# Stockage SQLite et MQTT outbox
+# Stockage SQLite et outboxes de livraison
 
 ## 1. Statut
 
-**TESTÉ AUTOMATIQUEMENT**
+DJUA_SMS utilise la bibliothèque standard Python `sqlite3`.
 
-Cette couche utilise uniquement la bibliothèque standard Python `sqlite3`.
-
-Aucun ORM, Redis, PostgreSQL ou broker MQTT n'est nécessaire.
-
-Le chemin de base est configurable via :
-
-```python
-Database(path)
-```
-
-Le futur déploiement pourra fournir par exemple :
+Le chemin de base reste configurable :
 
 ```text
 DATABASE_PATH=data/djua_sms_gateway.db
 ```
 
-sans que cette phase ajoute une configuration réseau complète.
+SQLite conserve le SMS brut, les métadonnées de validation/déduplication et les livraisons réseau encore à effectuer.
 
 ## 2. Version de schéma
 
 Version actuelle :
 
 ```text
-PRAGMA user_version = 1
+PRAGMA user_version = 3
+```
+
+Historique :
+
+```text
+v1 -> inbound_sms + mqtt_outbox
+v2 -> métadonnées D2 ajoutées à inbound_sms
+v3 -> http_outbox
 ```
 
 `Database.initialize()` :
 
-- crée les tables/index si nécessaires ;
-- accepte la réouverture d'une base version 1 ;
-- met une base version 0 à version 1 ;
-- refuse une base dont la version est supérieure à celle connue.
+- crée le schéma complet pour une base neuve ;
+- migre v1 -> v2 -> v3 ;
+- migre v2 -> v3 ;
+- préserve les lignes existantes ;
+- refuse une base plus récente que la version supportée.
 
-Une future évolution devra ajouter explicitement une migration/version supplémentaire. Alembic n'est pas utilisé.
+Alembic n'est pas utilisé.
 
 ## 3. Table inbound_sms
 
-Schéma logique implémenté :
+Champs principaux :
 
 ```text
-id INTEGER PRIMARY KEY
-sender TEXT NOT NULL
-modem_timestamp TEXT NULL
-gateway_received_at TEXT NOT NULL
-raw_body TEXT NOT NULL
-raw_dedupe_key TEXT NOT NULL UNIQUE
-logical_dedupe_key TEXT NULL UNIQUE
-protocol_version TEXT NULL
-device_id TEXT NULL
-sequence INTEGER NULL
-status TEXT NOT NULL
-validation_status TEXT NULL
-validation_warning TEXT NULL
-validation_error TEXT NULL
-created_at TEXT NOT NULL
-updated_at TEXT NOT NULL
+id
+sender
+modem_timestamp
+gateway_received_at
+raw_body
+raw_dedupe_key
+logical_dedupe_key
+protocol_version
+device_id
+sequence
+message_id
+d2_content_hash
+auth_status
+security_status
+conflict_with_sms_id
+status
+validation_status
+validation_warning
+validation_error
+created_at
+updated_at
 ```
 
-Statuts autorisés :
+Statuts :
 
 ```text
 RECEIVED
@@ -73,33 +77,31 @@ PUBLISHED
 FAILED
 ```
 
-`raw_body` reste la source d'audit. Les valeurs électriques individuelles ne sont pas dupliquées dans cette table.
+`raw_body` reste la preuve d'audit du SMS reçu.
 
 ## 4. Table mqtt_outbox
 
 ```text
-id INTEGER PRIMARY KEY
-sms_id INTEGER NOT NULL UNIQUE
-topic TEXT NOT NULL
-payload_json TEXT NOT NULL
-qos INTEGER NOT NULL
-retain INTEGER NOT NULL
-status TEXT NOT NULL
-attempt_count INTEGER NOT NULL
-next_attempt_at TEXT NULL
-last_error TEXT NULL
-created_at TEXT NOT NULL
-updated_at TEXT NOT NULL
-published_at TEXT NULL
+id
+sms_id UNIQUE
+topic
+payload_json
+qos
+retain
+status
+attempt_count
+next_attempt_at
+last_error
+created_at
+updated_at
+published_at
 ```
 
-La relation :
+Relation :
 
 ```text
 mqtt_outbox.sms_id -> inbound_sms.id
 ```
-
-est protégée par une foreign key SQLite.
 
 Statuts :
 
@@ -109,17 +111,82 @@ PUBLISHED
 FAILED
 ```
 
-Une outbox correspond à une publication MQTT future.
-
-## 5. Déduplication brute
-
-Fonction :
+## 5. Table http_outbox
 
 ```text
-compute_raw_dedupe_key()
+id
+sms_id UNIQUE
+url
+payload_json
+status
+attempt_count
+next_attempt_at
+last_error
+created_at
+updated_at
+published_at
 ```
 
-Entrées :
+Relation :
+
+```text
+http_outbox.sms_id -> inbound_sms.id
+```
+
+La table ne contient pas de secret HTTP. Les éventuelles clés API restent dans la configuration locale.
+
+## 6. Création atomique des sorties
+
+Après validation et normalisation, la transaction de mise en file dépend de `DELIVERY_MODE`.
+
+```text
+MQTT_ONLY
+
+UPDATE inbound_sms -> QUEUED
+INSERT mqtt_outbox -> PENDING
+COMMIT
+```
+
+```text
+HTTP_ONLY
+
+UPDATE inbound_sms -> QUEUED
+INSERT http_outbox -> PENDING
+COMMIT
+```
+
+```text
+MQTT_AND_HTTP
+
+UPDATE inbound_sms -> QUEUED
+INSERT mqtt_outbox -> PENDING
+INSERT http_outbox -> PENDING
+COMMIT
+```
+
+Si l'une des insertions échoue, la transaction entière est rollbackée.
+
+Cette frontière permet à `SmsReceiver` de supprimer ensuite le SMS du modem sans dépendre de la disponibilité immédiate du broker ou de l'API HTTP.
+
+## 7. Même payload backend
+
+Lorsque les deux sorties sont activées :
+
+```text
+mqtt_outbox.payload_json
+==
+http_outbox.payload_json
+```
+
+La gateway ne construit pas deux contrats métier différents.
+
+MQTT ajoute seulement son topic/QoS/retain. HTTP ajoute seulement l'URL et les en-têtes de transport.
+
+## 8. Déduplication
+
+### Brute
+
+`compute_raw_dedupe_key()` utilise une représentation déterministe de :
 
 ```text
 sender
@@ -127,130 +194,72 @@ modem_timestamp si disponible
 raw_body exact
 ```
 
-Le tout est sérialisé canoniquement puis hashé en SHA-256.
+### D1 logique
 
-La contrainte UNIQUE est la garde finale.
+`compute_logical_dedupe_key()` protège la télémétrie D1 normalisée contre une seconde mise en file.
 
-## 6. Déduplication logique
+### D2 / D2T2 / D2E
 
-Fonction :
+`message_id = D2:<device_id>:<sequence_base36>` et `d2_content_hash` distinguent replay légitime et conflit.
 
-```text
-compute_logical_dedupe_key()
-```
-
-Elle utilise :
-
-```text
-device_id
-sequence
-rtc
-uptime_ms
-canonical_logical_message
-```
-
-Le message canonique contient les valeurs D1 déjà parsées et les flags, mais pas le texte `auth`. Les valeurs appartenant à un groupe déclaré invalide sont canonicalisées à `null`, car le normalizer les ignore également.
-
-Ainsi, des représentations textuelles équivalentes restent idempotentes.
-
-## 7. Transactions
-
-### Stockage brut
-
-`store_raw_sms()` effectue une transaction dédiée.
-
-Succès :
-
-```text
-STORED
-```
-
-Relecture du même SMS :
-
-```text
-DUPLICATE
-```
-
-Dans les deux cas, `durably_stored = True` signifie qu'une copie SQLite existe après le retour de la méthode.
-
-### Mise en file
-
-`queue_valid_sms()` place dans une même transaction :
-
-```text
-inbound_sms.status = QUEUED
-+
-INSERT mqtt_outbox(status=PENDING)
-```
-
-Un échec outbox rollbacke l'ensemble.
-
-## 8. Pipeline
-
-`SmsIngestionService.ingest()` réalise :
-
-```text
-store brut
--> duplicate raw ?
--> parse
--> validate
--> invalid ?
--> normalize
--> duplicate logical ?
--> queue outbox
-```
-
-Résultats possibles :
-
-```text
-QUEUED
-INVALID
-DUPLICATE_RAW
-DUPLICATE_LOGICAL
-```
-
-Aucune publication MQTT n'est effectuée.
+Un doublon logique ne crée pas de seconde outbox, quel que soit le mode de livraison.
 
 ## 9. Reprise
 
-`list_pending_outbox()` retourne les publications encore `PENDING`, éventuellement filtrées par `next_attempt_at`.
+Les méthodes :
 
-Elles survivent à la fermeture/réouverture du processus car elles sont stockées dans le fichier SQLite.
+```text
+list_pending_outbox()
+list_pending_http_outbox()
+```
 
-## 10. API préparée pour la phase MQTT
+retrouvent les livraisons `PENDING` après redémarrage.
 
-`mark_outbox_published()` :
+Les retries conservent le même `payload_json`.
 
-- marque l'outbox `PUBLISHED` ;
-- définit `published_at` ;
-- marque le SMS `PUBLISHED`.
+## 10. Statut global du SMS
 
-`record_publish_failure()` :
+Le statut `inbound_sms` reflète toutes les sorties réellement créées pour ce SMS :
 
-- incrémente `attempt_count` ;
-- conserve `last_error` ;
-- conserve `next_attempt_at` ;
-- ne supprime jamais le payload.
+```text
+au moins une sortie FAILED
+-> inbound_sms = FAILED
 
-Ces méthodes sont testées sans broker. Leur utilisation après PUBACK réel appartient à la phase MQTT.
+toutes les sorties existantes PUBLISHED
+-> inbound_sms = PUBLISHED
 
-## 11. Tests
+sinon
+-> inbound_sms = QUEUED
+```
 
-La suite couvre notamment :
+Ainsi, en `MQTT_AND_HTTP`, un PUBACK MQTT seul ne suffit pas à marquer le SMS `PUBLISHED`.
 
-- création/réouverture du schéma ;
-- commit et rollback ;
-- contraintes UNIQUE ;
-- foreign keys ;
-- UTF-8 et NULL SQL ;
-- JSON outbox ;
-- crash/relecture brute ;
-- doublon logique ;
-- reprise PENDING ;
-- multi-device ;
-- même séquence sur devices différents ;
-- reboot/wrap ;
-- `uint32 millis()` max ;
-- solaire `null` vs `0.0`.
+## 11. Échecs et retries
 
-Aucune donnée de test ne contient de secret réel.
+MQTT et HTTP possèdent leurs propres :
+
+```text
+attempt_count
+next_attempt_at
+last_error
+```
+
+Un échec temporaire laisse la ligne `PENDING`.
+
+Un échec terminal conserve la ligne en `FAILED`; aucune preuve durable n'est supprimée.
+
+## 12. Tests à protéger
+
+La suite doit couvrir au minimum :
+
+- création et réouverture du schéma v3 ;
+- migration v1 -> v3 ;
+- migration v2 -> v3 ;
+- préservation des lignes MQTT existantes ;
+- rollback atomique ;
+- déduplication ;
+- reprise des outboxes PENDING ;
+- HTTP_ONLY ;
+- MQTT_AND_HTTP ;
+- même payload sur les deux sorties ;
+- statut global `QUEUED/PUBLISHED/FAILED`.
