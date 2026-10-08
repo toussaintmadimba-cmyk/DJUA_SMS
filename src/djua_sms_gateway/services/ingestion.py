@@ -7,7 +7,7 @@ from enum import Enum
 import json
 import logging
 
-from djua_sms_gateway.config import D2SecurityConfig
+from djua_sms_gateway.config import D2SecurityConfig, DeliveryMode
 from djua_sms_gateway.protocol.d2 import (
     D2AuthStatus,
     D2ProtocolError,
@@ -50,6 +50,23 @@ class IngestionConfig:
     mqtt_topic_prefix: str = "djua/test"
     mqtt_qos: int = 1
     mqtt_retain: bool = False
+    delivery_mode: DeliveryMode = DeliveryMode.MQTT_ONLY
+    http_telemetry_url: str | None = None
+    http_event_url: str | None = None
+
+    def validate(self) -> "IngestionConfig":
+        if self.delivery_mode.http_enabled and not self.http_telemetry_url:
+            raise ValueError(
+                "http_telemetry_url is required when HTTP delivery is enabled"
+            )
+        return self
+
+    def http_url_for(self, protocol: str) -> str | None:
+        if not self.delivery_mode.http_enabled:
+            return None
+        if protocol == "D2E":
+            return self.http_event_url or self.http_telemetry_url
+        return self.http_telemetry_url
 
 
 @dataclass(frozen=True)
@@ -57,6 +74,7 @@ class IngestionResult:
     disposition: IngestionDisposition
     sms_id: int
     outbox_id: int | None = None
+    http_outbox_id: int | None = None
     duplicate_of_sms_id: int | None = None
     error: str | None = None
 
@@ -73,7 +91,7 @@ class SmsIngestionService:
         d2_security: D2SecurityConfig | None = None,
     ) -> None:
         self.repository = repository
-        self.config = config or IngestionConfig()
+        self.config = (config or IngestionConfig()).validate()
         self.d2_security = (
             d2_security or D2SecurityConfig()
         ).validate()
@@ -181,6 +199,8 @@ class SmsIngestionService:
             payload_json=payload_json,
             qos=self.config.mqtt_qos,
             retain=self.config.mqtt_retain,
+            create_mqtt=self.config.delivery_mode.mqtt_enabled,
+            http_url=self.config.http_url_for("D1"),
         )
 
         if (
@@ -198,15 +218,10 @@ class SmsIngestionService:
                 duplicate_of_sms_id=queued.duplicate_of_sms_id,
             )
 
-        logger.info(
-            "MQTT_OUTBOX_CREATED sms_id=%s outbox_id=%s",
+        return self._queued_result(
             sms_id,
-            queued.outbox.id,
-        )
-        return IngestionResult(
-            IngestionDisposition.QUEUED,
-            sms_id=sms_id,
-            outbox_id=queued.outbox.id,
+            queued,
+            protocol="D1",
         )
 
     def _ingest_d2(
@@ -300,6 +315,8 @@ class SmsIngestionService:
             payload_json=payload_json,
             qos=self.config.mqtt_qos,
             retain=self.config.mqtt_retain,
+            create_mqtt=self.config.delivery_mode.mqtt_enabled,
+            http_url=self.config.http_url_for(message.protocol_version),
         )
 
         if (
@@ -337,16 +354,10 @@ class SmsIngestionService:
                 duplicate_of_sms_id=queued.duplicate_of_sms_id,
             )
 
-        logger.info(
-            "MQTT_OUTBOX_CREATED sms_id=%s outbox_id=%s protocol=%s",
+        return self._queued_result(
             sms_id,
-            queued.outbox.id,
-            message.protocol_version,
-        )
-        return IngestionResult(
-            IngestionDisposition.QUEUED,
-            sms_id=sms_id,
-            outbox_id=queued.outbox.id,
+            queued,
+            protocol=message.protocol_version,
         )
 
     def _ingest_d2t2(
@@ -440,6 +451,8 @@ class SmsIngestionService:
             payload_json=payload_json,
             qos=self.config.mqtt_qos,
             retain=self.config.mqtt_retain,
+            create_mqtt=self.config.delivery_mode.mqtt_enabled,
+            http_url=self.config.http_url_for("D2T2"),
         )
 
         if (
@@ -477,15 +490,43 @@ class SmsIngestionService:
                 duplicate_of_sms_id=queued.duplicate_of_sms_id,
             )
 
-        logger.info(
-            "MQTT_OUTBOX_CREATED sms_id=%s outbox_id=%s protocol=%s",
+        return self._queued_result(
             sms_id,
-            queued.outbox.id,
-            message.protocol_version,
+            queued,
+            protocol=message.protocol_version,
         )
+
+    def _queued_result(
+        self,
+        sms_id: int,
+        queued,
+        *,
+        protocol: str,
+    ) -> IngestionResult:
+        mqtt_id = queued.outbox.id if queued.outbox is not None else None
+        http_id = (
+            queued.http_outbox.id
+            if queued.http_outbox is not None
+            else None
+        )
+        if mqtt_id is not None:
+            logger.info(
+                "MQTT_OUTBOX_CREATED sms_id=%s outbox_id=%s protocol=%s",
+                sms_id,
+                mqtt_id,
+                protocol,
+            )
+        if http_id is not None:
+            logger.info(
+                "HTTP_OUTBOX_CREATED sms_id=%s outbox_id=%s protocol=%s",
+                sms_id,
+                http_id,
+                protocol,
+            )
         return IngestionResult(
             IngestionDisposition.QUEUED,
             sms_id=sms_id,
-            outbox_id=queued.outbox.id,
+            outbox_id=mqtt_id,
+            http_outbox_id=http_id,
         )
 
