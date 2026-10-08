@@ -28,6 +28,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(version, SCHEMA_VERSION)
         self.assertIn("inbound_sms", names)
         self.assertIn("mqtt_outbox", names)
+        self.assertIn("http_outbox", names)
 
     def test_initialize_is_idempotent_on_existing_database(self) -> None:
         self.db.initialize()
