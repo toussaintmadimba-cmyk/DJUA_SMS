@@ -8,11 +8,12 @@ Principe :
 
 ```text
 un SMS déjà commit dans SQLite
-ne dépend plus de la disponibilité d'Internet ou MQTT
+ne dépend plus de la disponibilité d'Internet,
+du broker MQTT ou de l'API HTTP
 pour être conservé
 ```
 
-La persistance, la reprise et la chaîne GSM simulée sont maintenant **TESTÉES AUTOMATIQUEMENT**. Le SIM868 physique et le SMS réel restent non validés.
+La persistance et la reprise sont couvertes par les tests automatisés. Le SIM868 et un vrai SMS D2T2 ont aussi été validés sur le poste de test avant l'ajout HTTP. La nouvelle sortie HTTP doit être distinguée de cette validation matérielle existante.
 
 ## 2. Ordre de non-perte
 
@@ -109,13 +110,11 @@ Pour un SMS valide :
 ```text
 UPDATE inbound_sms -> QUEUED
 +
-INSERT mqtt_outbox -> PENDING
+INSERT outbox(es) configurée(s) -> PENDING
 COMMIT
 ```
 
-Les deux opérations sont atomiques.
-
-Un test force une violation de contrainte outbox : l'état `QUEUED` est alors rollbacké et aucune outbox partielle n'existe.
+La mise à jour du SMS et toutes les outboxes activées sont atomiques. En mode `MQTT_AND_HTTP`, une erreur sur l'une des deux insertions rollbacke l'ensemble.
 
 ## 6. SMS invalides
 
@@ -127,7 +126,7 @@ Une erreur de parsing ou un `INVALID_FORMAT` produit :
 inbound_sms.status = INVALID
 raw_body conservé
 validation_error conservée
-aucune mqtt_outbox
+aucune outbox backend
 ```
 
 L'invalidité ne supprime pas la preuve brute.
@@ -165,15 +164,14 @@ status = PENDING
 
 ## 8. Reprise
 
-**TESTÉ AUTOMATIQUEMENT**
-
-Après fermeture/réouverture de la base :
+Les deux files persistantes peuvent être reprises après redémarrage :
 
 ```text
 list_pending_outbox()
+list_pending_http_outbox()
 ```
 
-retrouve les publications `PENDING` et leur `payload_json` identique.
+Elles retrouvent les livraisons `PENDING` et leur `payload_json` identique.
 
 Le test end-to-end simulé couvre :
 
@@ -206,7 +204,7 @@ Résultat :
 
 ```text
 1 inbound_sms
-1 mqtt_outbox
+1 jeu d'outbox(es) configuré
 DUPLICATE_RAW au second passage
 ```
 
@@ -216,19 +214,23 @@ La suppression réelle du modem n'est pas encore testée.
 
 **TESTÉ AUTOMATIQUEMENT**
 
-Une outbox `PENDING` reste présente après réouverture du fichier SQLite.
+Une outbox MQTT ou HTTP `PENDING` reste présente après réouverture du fichier SQLite.
 
 Aucune purge automatique n'est effectuée.
 
 ## 11. Publication future
 
-L'API `mark_outbox_published()` effectue dans une transaction :
+Les sorties marquent indépendamment leur ligne `PUBLISHED`.
+
+Le statut global du SMS est recalculé :
 
 ```text
-mqtt_outbox.status = PUBLISHED
-published_at = ...
-inbound_sms.status = PUBLISHED
+toutes les sorties existantes PUBLISHED -> inbound_sms PUBLISHED
+une sortie encore PENDING              -> inbound_sms QUEUED
+une sortie FAILED terminal             -> inbound_sms FAILED
 ```
+
+Ainsi, en mode double, un PUBACK MQTT seul ne suffit pas à terminer le message.
 
 L'API `record_publish_failure()` :
 
@@ -244,7 +246,7 @@ Un échec temporaire laisse l'outbox `PENDING`.
 
 Un échec explicitement terminal peut passer à `FAILED`, sans suppression de la ligne.
 
-Le transport MQTT utilise maintenant un backoff exponentiel simple `base * 2^attempt_count`, plafonné par une valeur configurable.
+MQTT et HTTP utilisent un backoff exponentiel `base * 2^attempt_count`, plafonné par une valeur configurable.
 
 ## 12. Horodatage
 
@@ -285,16 +287,20 @@ La gateway ne remplace jamais l'horodatage DJUA avec son heure locale de traitem
 - reconfiguration modem ;
 - persistance avant suppression.
 
-**NON VALIDÉ MATÉRIELLEMENT** :
+**VALIDÉ SUR LE POSTE DE TEST AVANT CETTE ÉVOLUTION HTTP** :
 
-- mémoire réelle du SIM800L ;
+- SIM868 réel ;
 - port COM réel ;
-- vrai SMS ;
-- comportement CNMI réel ;
-- SMS concaténés ;
-- broker réel dans cet environnement ;
-- PUBACK réel ;
-- exactly-once end-to-end.
+- vrai SMS D2T2 ;
+- publication MQTT jusqu'au PUBACK ;
+- réception D2T2/DC LOAD par l'API FastAPI de test.
+
+**RESTANT À VALIDER POUR LA NOUVELLE SORTIE HTTP** :
+
+- POST HTTP réel depuis la gateway vers l'endpoint cible ;
+- comportement réseau réel pendant coupures/reprises ;
+- authentification HTTP de production si utilisée ;
+- exactly-once end-to-end n'est pas garanti.
 
 
 ## 15. PUBACK et persistance
@@ -396,29 +402,22 @@ CMGL
 
 sont rejoués.
 
-## 23. MQTT indisponible
+## 23. Sortie réseau indisponible
 
-Le SMS modem peut être supprimé lorsque SQLite a durablement créé l'outbox, même si MQTT est hors ligne.
+Le SMS modem peut être supprimé dès que SQLite a durablement créé toutes les outboxes configurées.
 
 ```text
 SQLite durable
 -> CMGD
--> mqtt_outbox PENDING
--> retry MQTT plus tard
+-> mqtt_outbox et/ou http_outbox PENDING
+-> retry réseau plus tard
 ```
+
+Une indisponibilité MQTT n'empêche pas HTTP de progresser, et inversement.
 
 ## 24. Tests
 
-État actuel :
-
-```text
-208 tests
-208 PASS
-0 FAIL
-0 SKIP
-```
-
-Le CI installe `pyserial==3.5` et `paho-mqtt==2.1.0`, compile les sources puis exécute toute la suite.
+Le CI installe `pyserial==3.5` et `paho-mqtt==2.1.0`, compile les sources puis exécute toute la suite. Le nombre exact de tests et leur résultat doivent être pris dans le dernier run CI, jamais dans un compteur historique de ce document.
 
 ## 25. Fiabilité D2
 
@@ -441,8 +440,29 @@ même message_id + signed_part différent
 
 Le `d2_content_hash` n'est utilisé comme identité fiable qu'après validation de sécurité ; un message non authentifié ne peut donc pas réserver à lui seul un message_id.
 
-La migration SQLite v1 -> v2 est testée avec une ligne D1 et une outbox préexistantes, qui restent intactes.
+Les migrations SQLite v1 -> v3 et v2 -> v3 doivent préserver les SMS et outboxes MQTT préexistants. La v3 ajoute uniquement `http_outbox`.
 
 `gateway_received_at` est conservé dans le JSON durable de l'outbox. Les retries MQTT republient exactement le même payload.
 
-Le récepteur matériel confirmé est SIM868. La réception D2T/D2E, SQLite, CMGD et publication MQTT sont testés automatiquement avec des doubles modem/MQTT, pas avec un nouveau vrai SMS D2.
+Le récepteur matériel confirmé est SIM868. Un vrai SMS D2T2 a été observé jusqu'au PUBACK MQTT puis jusqu'au backend FastAPI de test. La sortie HTTP ajoutée ici est une nouvelle voie de livraison et doit être validée séparément contre un endpoint HTTP réel.
+
+
+## 26. Fiabilité HTTP
+
+`http_outbox` est persistante et indépendante de `mqtt_outbox`.
+
+Sémantique :
+
+```text
+2xx                  -> PUBLISHED
+408 / 425 / 429      -> retry
+5xx                  -> retry
+erreur réseau        -> retry
+autre 4xx            -> FAILED terminal
+```
+
+Le même `payload_json` durable est réutilisé pendant les retries.
+
+En `MQTT_AND_HTTP`, les deux transports peuvent aboutir à des moments différents. Cela ne doit jamais conduire à recréer ou recalculer la télémétrie originale.
+
+Si MQTT et HTTP convergent vers le même système métier, le backend doit être idempotent : la gateway ne promet pas exactly-once entre deux transports indépendants.
