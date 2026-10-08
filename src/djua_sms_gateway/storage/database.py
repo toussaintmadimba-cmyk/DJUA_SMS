@@ -7,7 +7,7 @@ from pathlib import Path
 import sqlite3
 from typing import Iterator
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class ClosingConnection(sqlite3.Connection):
@@ -70,6 +70,24 @@ CREATE INDEX IF NOT EXISTS idx_inbound_sms_message_id
     ON inbound_sms(message_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_status_next_attempt
     ON mqtt_outbox(status, next_attempt_at, id);
+
+CREATE TABLE IF NOT EXISTS http_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sms_id INTEGER NOT NULL UNIQUE,
+    url TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('PENDING','PUBLISHED','FAILED')),
+    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    next_attempt_at TEXT NULL,
+    last_error TEXT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    published_at TEXT NULL,
+    FOREIGN KEY (sms_id) REFERENCES inbound_sms(id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_http_outbox_status_next_attempt
+    ON http_outbox(status, next_attempt_at, id);
 """
 
 _MIGRATION_V1_TO_V2 = (
@@ -80,6 +98,25 @@ _MIGRATION_V1_TO_V2 = (
     "ALTER TABLE inbound_sms ADD COLUMN conflict_with_sms_id INTEGER NULL",
     "CREATE INDEX IF NOT EXISTS idx_inbound_sms_message_id ON inbound_sms(message_id)",
 )
+
+_MIGRATION_V2_TO_V3 = """
+CREATE TABLE IF NOT EXISTS http_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sms_id INTEGER NOT NULL UNIQUE,
+    url TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('PENDING','PUBLISHED','FAILED')),
+    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    next_attempt_at TEXT NULL,
+    last_error TEXT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    published_at TEXT NULL,
+    FOREIGN KEY (sms_id) REFERENCES inbound_sms(id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_http_outbox_status_next_attempt
+    ON http_outbox(status, next_attempt_at, id);
+"""
 
 
 class Database:
@@ -124,11 +161,16 @@ class Database:
             if current_version == 1:
                 for statement in _MIGRATION_V1_TO_V2:
                     connection.execute(statement)
-                connection.execute(
-                    f"PRAGMA user_version = {SCHEMA_VERSION}"
-                )
+                current_version = 2
+
+            if current_version == 2:
+                connection.executescript(_MIGRATION_V2_TO_V3)
+                current_version = 3
 
             connection.executescript(_SCHEMA)
+            connection.execute(
+                f"PRAGMA user_version = {SCHEMA_VERSION}"
+            )
 
     @contextmanager
     def transaction(
