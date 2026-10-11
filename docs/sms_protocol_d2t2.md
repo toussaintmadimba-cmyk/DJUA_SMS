@@ -79,7 +79,7 @@ Rules:
 - unsigned fields are ordinary fixed-width unsigned integers;
 - signed fields use fixed-width two's-complement;
 - bytes are Base64URL encoded without `=` padding;
-- the final six reserved bits must be zero.
+- the final six bits must be zero in the historical layout; in the AC extension, they carry the low six frequency bits. The AC extension is identified by FLAGS bit 9.
 
 | Field | Bits | Width | Encoding |
 | --- | ---: | ---: | --- |
@@ -99,14 +99,14 @@ Rules:
 | AV | 294..305 | 12 | unsigned |
 | AI | 306..317 | 12 | unsigned |
 | AP | 318..335 | 18 | signed two's-complement |
-| AS | 336..352 | 17 | unsigned |
+| AS (legacy) / PF+FREQ_HI (AC extension) | 336..352 | 17 | unsigned |
 | AE | 353..378 | 26 | signed two's-complement |
 | DV | 379..395 | 17 | unsigned |
 | DI | 396..413 | 18 | signed two's-complement |
 | DP | 414..431 | 18 | signed two's-complement |
 | DE | 432..457 | 26 | signed two's-complement |
 | FLAGS | 458..473 | 16 | unsigned |
-| RESERVED | 474..479 | 6 | must be zero |
+| RESERVED (legacy) / FREQ_LO (AC extension) | 474..479 | 6 | legacy zero; extension frequency low six bits |
 
 ## 5. Units, resolution and ranges
 
@@ -130,7 +130,9 @@ D2T2 keeps the existing D2T resolutions and ranges. DC load uses an envelope cho
 | AV | 0.1 V RMS | 0..400 V |
 | AI | 0.01 A RMS | 0..30 A |
 | AP | 0.1 W | -12000..+12000 W |
-| AS | 0.1 VA | 0..12000 VA |
+| AS (legacy only) | 0.1 VA | 0..12000 VA |
+| PF (AC extension) | 0.001 | -1.000..+1.000; null sentinel |
+| FREQ (AC extension) | 0.01 Hz | 40.00..70.00 Hz; null sentinel |
 | AE | 0.01 Wh | -288000..+288000 Wh |
 | DV | 1 mV | 0..100 V |
 | DI | 1 mA | -100..+100 A |
@@ -167,7 +169,7 @@ DC load:
 
 ## 7. Flags
 
-FLAGS occupies 16 bits. D2T2 v1 defines bits 0..8 only. Bits 9..15 must be zero.
+FLAGS occupies 16 bits. D2T2 v1 defined bits 0..8 only. In the backward-compatible AC extension, bit 9 is explicitly defined. Bits 10..15 must still be zero.
 
 ```text
 bit0 RTC_VALID
@@ -179,7 +181,8 @@ bit5 SOLAR_ENERGY_COMPLETE
 bit6 AC_ENERGY_COMPLETE
 bit7 DC_LOAD_VALID
 bit8 DC_LOAD_ENERGY_COMPLETE
-bits9..15 RESERVED = 0
+bit9 AC_PF_FREQUENCY_EXTENDED (new D2T2 AC layout)
+bits10..15 RESERVED = 0
 ```
 
 Dependencies:
@@ -311,7 +314,7 @@ djua/test/<device_id>/telemetry
 
 DJUA_SMS decodes the compact payload before MQTT. The backend never needs to understand the packed bytes.
 
-The D2T2 JSON keeps all D2T business groups and adds `dc_load`:
+The D2T2 JSON keeps all the historical business groups and adds `dc_load`. In the new AC extension (`FLAGS` bit 9), AC apparent power is replaced with power factor and frequency; in old 60-byte D2T2 payloads, the legacy `apparent_power_va` field remains:
 
 ```json
 {
@@ -339,7 +342,8 @@ The D2T2 JSON keeps all D2T business groups and adds `dc_load`:
     "voltage_v": 230.1,
     "current_a": 1.25,
     "active_power_w": 244.5,
-    "apparent_power_va": 287.6,
+    "power_factor": 0.87,
+    "frequency_hz": 50.0,
     "energy_interval_wh": 122.25
   },
   "dc_load": {
@@ -454,3 +458,80 @@ DJUA transmitter firmware          : not modified
 ```
 
 Do not claim hardware or backend end-to-end validation until those tests are actually performed.
+
+---
+
+## 18. AC power factor + frequency extension (60-byte payload, backwards-readable)
+
+This extension is intended for the new IOTBOXV2 transmitters. It keeps the external grammar `D2T2,DEV,PAYLOAD,AUTH`, the same 60-byte packing, the 80-character Base64URL body and the same HMAC derivation. The receiver MUST inspect FLAGS bit 9 to select the layout. It MUST NOT decode a legacy apparent-power slot as power factor.
+
+- Set `FLAGS bit 9 = 1` (`0x0200`) for the new AC extension.
+- Preserve flags bits 0..8, including the existing independent AC validity and AC energy-completeness semantics.
+- Keep flags bits 10..15 at zero.
+- Reuse the 17-bit historical `ac_apparent_power_raw` slot (bits 336..352), PLUS the final six payload bits (474..479), to pack two values without increasing message size.
+
+Encoding, exactly:
+
+```text
+PF_CODE: 11-bit UNSIGNED
+  0..2000: power_factor = (PF_CODE - 1000) / 1000
+           range -1.000..+1.000, resolution 0.001
+  2047:    power factor not available -> JSON null
+  2001..2046: invalid/reserved
+
+FREQ_CODE: 12-bit UNSIGNED
+  0..3000: frequency_hz = 40.00 + FREQ_CODE / 100
+           range 40.00..70.00 Hz, resolution 0.01 Hz
+  4095:    frequency unavailable -> JSON null
+  3001..4094: invalid/reserved
+
+AC_SLOT_17 = (PF_CODE << 6) | (FREQ_CODE >> 6)
+TAIL_6     = FREQ_CODE & 0x3F
+```
+
+`AC_SLOT_17` occupies exactly the original 17 AC apparent-power bits; `TAIL_6` occupies exactly the previously reserved final six bits. The 11+12 = 23 bits fit the 17+6 bit budget. No extra field, SMS or byte is needed.
+
+If `AC_VALID=0`, all numeric AC slots, including `AC_SLOT_17` and `TAIL_6`, must be zero, and the two new JSON values are `null`. If `AC_VALID=1` but frequency or PF cannot be measured, use the dedicated unavailable sentinel for that field and keep other valid fields. Never manufacture a frequency of 50/60 Hz or a power factor from a nominal inverter rating. Reject out-of-range measured values rather than silently clipping.
+
+The normalized backend `ac_load` object for the extended variant is:
+
+```json
+{
+  "voltage_v": 230.1,
+  "current_a": 1.25,
+  "active_power_w": 244.5,
+  "power_factor": 0.87,
+  "frequency_hz": 50.0,
+  "energy_interval_wh": 122.25
+}
+```
+
+The extended output omits `apparent_power_va`; legacy packets retain it. The backend must recognize the two field variants during the transition.
+
+**Reference vector — HMAC-SHA-256 authenticated** (only for tests):
+
+```text
+key_hex = 000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F
+D2T2,DJUA-KIN-000001,AAAwOWq5NngHW80VA4R-WaCBdhPGDgAH0AB8RxgBM4AOAAARgj9B9AmN6ceABfgjA-AyAAGLAAHuAP_o,RIiCkWzDza4
+```
+
+Length: **113 GSM-7 septets**. Expected fields: `power_factor=0.87`, `frequency_hz=50.00`. The historical vectors remain valid and decode with `apparent_power_va`.
+
+### IOTBOXV2 DC aggregation contract
+
+IOTBOXV2 keeps the four DC ports independently sampled, logged and diagnosed locally. D2T2 transports just one `dc_load` group. Aggregate the same measurement window:
+
+```text
+dc_load.power_w = sum(port.power_w) for DC1, DC2, DC3, TV
+dc_load.energy_interval_wh = sum(port.energy_interval_wh) for DC1, DC2, DC3, TV
+```
+
+`dc_load.current_a = sum(port.current_a)` and `dc_load.voltage_v` must only represent a physically coherent shared DC bus. Never sum voltages; never sum currents across unrelated voltages and claim they are one common bus measurement. Use one true common-bus voltage measurement when available. If the electrical arrangement does not permit one meaningful combined V/I measurement, review the transport contract; do not invent a value.
+
+All constituent measurements must be fresh and valid to assert `DC_LOAD_VALID`. Assert `DC_LOAD_ENERGY_COMPLETE` only if all four port energy intervals are complete over the *same* interval, using the correct sign convention (+ consumption, - regenerative return). Missing or invalid port samples must not silently become zeros. If any constituent is missing, follow canonical invalid/energy-incomplete encoding; do not publish a misleading partial total.
+
+The transmitted DC aggregate must satisfy the existing packed D2T2 limits (0..100 V, +/-100 A, +/-10 kW, +/-240000 Wh) and current rounding (V 0.001, A 0.001, W 0.1, Wh 0.01). Do not clamp overflows silently.
+
+IOTBOXV2 local schema v3 can retain additional fields (per-port diagnostics, battery energy, AC counters, GPS diagnostics) without transporting all of them in D2T2. The gateway does not reconstruct fields that were never transmitted.
+
+**Deployment sequence:** update the receiving gateway first, then install IOTBOXV2 firmware that sets the extension marker. An old unupdated gateway correctly rejects this extension rather than silently misreading it.
