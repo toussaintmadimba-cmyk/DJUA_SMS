@@ -36,7 +36,13 @@ from .d2 import (
 D2T2_FIELD_COUNT = 4
 D2T2_PAYLOAD_BYTES = 60
 D2T2_PAYLOAD_CHARS = 80
-D2T2_DEFINED_FLAGS = 0x01FF
+D2T2_DEFINED_FLAGS = 0x03FF
+# Bit 9 marks the AC extension, keeping legacy 60-byte D2T2 distinct.
+# The 17-bit legacy apparent-power slot plus the 6 reserved tail bits
+# carry 11 bits of power factor and 12 bits of frequency in this variant.
+D2T2_AC_EXTENDED_FLAG = 0x0200
+D2T2_AC_PF_UNAVAILABLE = 2047
+D2T2_AC_FREQ_UNAVAILABLE = 4095
 
 D2T2_PAYLOAD_RE = re.compile(r"^[A-Za-z0-9_-]{80}$")
 
@@ -95,6 +101,9 @@ class D2T2Message:
     ac_current: float | None
     ac_active_power: float | None
     ac_apparent_power: float | None
+    ac_power_factor: float | None
+    ac_frequency_hz: float | None
+    ac_extended: bool
     ac_energy_interval_wh: float | None
     dc_load_voltage: float | None
     dc_load_current: float | None
@@ -288,13 +297,6 @@ def parse_d2t2(raw_message: str) -> D2T2Message:
     _validate_auth_shape(auth)
     values = _decode_payload(payload)
 
-    if values["reserved_tail"] != 0:
-        raise D2ProtocolError(
-            "D2T2_RESERVED_BITS",
-            "reserved payload tail bits must be zero",
-            "payload",
-        )
-
     flags = values["flags"]
     if flags & ~D2T2_DEFINED_FLAGS:
         raise D2ProtocolError(
@@ -302,6 +304,20 @@ def parse_d2t2(raw_message: str) -> D2T2Message:
             "reserved D2T2 flag bits must be zero",
             "flags",
         )
+
+    ac_extended = bool(flags & D2T2_AC_EXTENDED_FLAG)
+    if not ac_extended and values["reserved_tail"] != 0:
+        raise D2ProtocolError(
+            "D2T2_RESERVED_BITS",
+            "reserved payload tail bits must be zero",
+            "payload",
+        )
+
+    # Legacy and extended D2T2 both occupy precisely 60 bytes. Extended
+    # decoding must be selected only by the explicit bit-9 discriminator.
+    ac_combined = values["ac_apparent_power_raw"]
+    ac_pf_code = ac_combined >> 6
+    ac_freq_code = ((ac_combined & 0x3F) << 6) | values["reserved_tail"]
 
     sequence = values["sequence"]
     _require_range(sequence, "sequence", 1, UINT32_MAX)
@@ -381,6 +397,7 @@ def parse_d2t2(raw_message: str) -> D2T2Message:
             values["ac_current_raw"],
             values["ac_active_power_raw"],
             values["ac_apparent_power_raw"],
+            *((values["reserved_tail"],) if ac_extended else ()),
         ),
         "ac",
     )
@@ -473,12 +490,26 @@ def parse_d2t2(raw_message: str) -> D2T2Message:
             -120000,
             120000,
         )
-        _require_range(
-            values["ac_apparent_power_raw"],
-            "ac_apparent_power",
-            0,
-            120000,
-        )
+        if ac_extended:
+            if not (0 <= ac_pf_code <= 2000 or ac_pf_code == D2T2_AC_PF_UNAVAILABLE):
+                raise D2ProtocolError(
+                    "OUT_OF_RANGE",
+                    "AC power factor packed code is outside permitted values",
+                    "ac_power_factor",
+                )
+            if not (0 <= ac_freq_code <= 3000 or ac_freq_code == D2T2_AC_FREQ_UNAVAILABLE):
+                raise D2ProtocolError(
+                    "OUT_OF_RANGE",
+                    "AC frequency packed code is outside permitted values",
+                    "ac_frequency",
+                )
+        else:
+            _require_range(
+                values["ac_apparent_power_raw"],
+                "ac_apparent_power",
+                0,
+                120000,
+            )
     if ac_energy_complete:
         _require_range(
             values["ac_energy_raw"],
@@ -575,9 +606,20 @@ def parse_d2t2(raw_message: str) -> D2T2Message:
         ),
         ac_apparent_power=(
             _scaled(values["ac_apparent_power_raw"], 10)
-            if ac_valid
+            if ac_valid and not ac_extended
             else None
         ),
+        ac_power_factor=(
+            (ac_pf_code - 1000) / 1000
+            if ac_valid and ac_extended and ac_pf_code != D2T2_AC_PF_UNAVAILABLE
+            else None
+        ),
+        ac_frequency_hz=(
+            40 + ac_freq_code / 100
+            if ac_valid and ac_extended and ac_freq_code != D2T2_AC_FREQ_UNAVAILABLE
+            else None
+        ),
+        ac_extended=ac_extended,
         ac_energy_interval_wh=(
             _scaled(values["ac_energy_raw"], 100)
             if ac_energy_complete
@@ -697,8 +739,13 @@ def normalize_d2t2_to_backend(
             "active_power_w": (
                 message.ac_active_power if message.ac_valid else None
             ),
-            "apparent_power_va": (
-                message.ac_apparent_power if message.ac_valid else None
+            **(
+                {
+                    "power_factor": message.ac_power_factor,
+                    "frequency_hz": message.ac_frequency_hz,
+                }
+                if message.ac_extended
+                else {"apparent_power_va": message.ac_apparent_power}
             ),
             "energy_interval_wh": (
                 message.ac_energy_interval_wh
